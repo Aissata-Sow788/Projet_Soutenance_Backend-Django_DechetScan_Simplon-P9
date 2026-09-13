@@ -10,7 +10,11 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.1/ref/settings/
 """
 
+import os
 from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv()  # charge les variables du fichier .env dans os.environ
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -30,6 +34,9 @@ DEBUG = True
 
 ALLOWED_HOSTS = []
 
+AUTH_USER_MODEL = 'users.Utilisateur'
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
 
 # Application definition
 
@@ -41,6 +48,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
+    'drf_spectacular',
     'corsheaders',
     'users',
     'dechets',
@@ -85,10 +93,21 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.1/ref/settings/#databases
 
+# DATABASES = {
+#     'default': {
+#         'ENGINE': 'django.db.backends.sqlite3',
+#         'NAME': BASE_DIR / 'db.sqlite3',
+#     }
+# }
+
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'ENGINE': 'django.db.backends.mysql',
+        'NAME': 'dechetscan_project',
+        'USER': 'dechetscan_user',
+       'PASSWORD': os.getenv('DB_PASSWORD'),
+        'HOST': 'localhost',
+        'PORT': '3306',
     }
 }
 
@@ -110,6 +129,21 @@ AUTH_PASSWORD_VALIDATORS = [
         'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
     },
 ]
+
+
+SPECTACULAR_SETTINGS = {
+    # Titre affiché dans Swagger
+    'TITLE': 'DechetScan API',
+
+    # Description de ton API
+    'DESCRIPTION': 'API backend de l’application DechetScan',
+
+    # Version actuelle de l'API
+    'VERSION': '1.0.0',
+
+    # Permet de déclarer l'authentification JWT dans Swagger
+    'SERVE_INCLUDE_SCHEMA': False,
+}
 
 
 # Internationalization
@@ -146,4 +180,6 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.AllowAny',
     ],
+        # Indique à DRF-Spectacular d'utiliser son générateur OpenAPI.
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
 }
