@@ -4,22 +4,19 @@ from dechets.models import TypeDechet
 
 
 class ScanDechet(models.Model):
-    idScan = models.AutoField(primary_key=True)
+    idScanDechet = models.AutoField(primary_key=True)
     dateScan = models.DateTimeField(auto_now_add=True)
-    photoUrl = models.URLField(max_length=500)
+    photo = models.ImageField(upload_to='scans/')  # remplace photoUrl
 
-    # Utilisateur qui a effectué le scan (relation "effectue")
-    utilisateur = models.ForeignKey(
+    idUtilisateur = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='scans'
     )
-
-    # Type de déchet détecté (relation "est classé comme")
-    typeDechet = models.ForeignKey(
+    idTypeDechet = models.ForeignKey(
         TypeDechet, on_delete=models.SET_NULL, null=True, related_name='scans'
     )
 
     def __str__(self):
-        return f"Scan #{self.idScan} - {self.dateScan.date()}"
+        return f"Scan #{self.idScanDechet} - {self.dateScan.date()}"
 
 
 class AnalyseIA(models.Model):
