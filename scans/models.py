@@ -4,19 +4,16 @@ from dechets.models import TypeDechet
 
 
 class ScanDechet(models.Model):
-    idScanDechet = models.AutoField(primary_key=True)
+    idScan = models.AutoField(primary_key=True)
     dateScan = models.DateTimeField(auto_now_add=True)
-    photo = models.ImageField(upload_to='scans/')  # remplace photoUrl
+    photoUrl = models.ImageField(upload_to='scans/')
 
-    idUtilisateur = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='scans'
-    )
-    idTypeDechet = models.ForeignKey(
-        TypeDechet, on_delete=models.SET_NULL, null=True, related_name='scans'
-    )
+    idUtilisateur = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='scans')
+
+    idTypeDechet = models.ForeignKey(TypeDechet, on_delete=models.SET_NULL, null=True, related_name='scans')
 
     def __str__(self):
-        return f"Scan #{self.idScanDechet} - {self.dateScan.date()}"
+        return f"Scan #{self.idScan} - {self.dateScan.date()}"
 
 
 class AnalyseIA(models.Model):

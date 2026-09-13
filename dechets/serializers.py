@@ -5,7 +5,7 @@ from .models import TypeDechet, ConseilTri
 class ConseilTriSerializer(serializers.ModelSerializer):
     class Meta:
         model = ConseilTri
-        fields = ['idConseil', 'consigne']
+        fields = ['idConseil', 'consigne', 'idTypeDechet']
 
 
 class TypeDechetSerializer(serializers.ModelSerializer):

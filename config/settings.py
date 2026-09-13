@@ -143,6 +143,10 @@ SPECTACULAR_SETTINGS = {
 
     # Permet de déclarer l'authentification JWT dans Swagger
     'SERVE_INCLUDE_SCHEMA': False,
+
+    # Sépare les schémas de lecture et d'envoi
+    # pour gérer correctement les fichiers
+    'COMPONENT_SPLIT_REQUEST': True,
 }
 
 

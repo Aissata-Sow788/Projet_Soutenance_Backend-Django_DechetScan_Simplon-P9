@@ -16,9 +16,11 @@ from drf_spectacular.views import (
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path('api/scans/', include('scans.urls')),
 
     # Authentification et gestion des utilisateurs
     path('api/auth/', include('users.urls')),
+    path('api/dechets/', include('dechets.urls')),
 
     # Génère automatiquement le schéma OpenAPI
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
