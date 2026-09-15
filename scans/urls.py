@@ -3,6 +3,6 @@ from .views import ScanDechetCreateView, ScanDechetListView
 
 
 urlpatterns = [
-    path('', ScanDechetCreateView.as_view(), name='scan-create'),
-    path('historique/', ScanDechetListView.as_view(), name='scan-historique'),
+    path('scans/', ScanDechetCreateView.as_view(), name='scan-create'),
+    path('scans/historique/', ScanDechetListView.as_view(), name='scan-historique'),
 ]

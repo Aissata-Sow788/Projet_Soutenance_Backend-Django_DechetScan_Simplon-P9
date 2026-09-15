@@ -6,7 +6,7 @@ from dechets.models import TypeDechet
 class ScanDechet(models.Model):
     idScan = models.AutoField(primary_key=True)
     dateScan = models.DateTimeField(auto_now_add=True)
-    photo = models.ImageField(upload_to='scans/')  # renommé (était photoUrl, trompeur pour un ImageField)
+    photoUrl = models.ImageField(upload_to='scans/')  # renommé (était photoUrl, trompeur pour un ImageField)
 
     idUtilisateur = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='scans'

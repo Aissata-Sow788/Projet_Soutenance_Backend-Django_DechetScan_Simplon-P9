@@ -12,6 +12,7 @@ class TypeDechetViewSet(viewsets.ModelViewSet):
     serializer_class = TypeDechetSerializer
 
     def get_permissions(self):
+        # Lecture ouverte à tous (connectés ou non), écriture réservée aux admins
         if self.action in ['list', 'retrieve']:
             return [IsAuthenticatedOrReadOnly()]
 
@@ -23,6 +24,7 @@ class ConseilTriViewSet(viewsets.ModelViewSet):
     serializer_class = ConseilTriSerializer
 
     def get_permissions(self):
+        # Même logique que TypeDechet : seul un admin peut créer/modifier un conseil
         if self.action in ['list', 'retrieve']:
             return [IsAuthenticatedOrReadOnly()]
 

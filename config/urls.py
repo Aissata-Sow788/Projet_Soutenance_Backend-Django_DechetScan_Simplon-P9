@@ -1,7 +1,6 @@
 """
 URL configuration for config project.
 """
-
 from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
@@ -17,10 +16,11 @@ from drf_spectacular.views import (
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/scans/', include('scans.urls')),
+    path('api/', include('collecte.urls')),
 
     # Authentification et gestion des utilisateurs
     path('api/auth/', include('users.urls')),
-    path('api/dechets/', include('dechets.urls')),
+    path('api/', include('dechets.urls')),
 
     # Génère automatiquement le schéma OpenAPI
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),

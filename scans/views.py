@@ -14,6 +14,7 @@ from .serializers import (
 
 class ScanDechetCreateView(APIView):
 
+    # Nécessaire pour recevoir un fichier (photo) dans la requête, pas juste du JSON
     parser_classes = [MultiPartParser, FormParser]
 
     @extend_schema(
@@ -28,10 +29,13 @@ class ScanDechetCreateView(APIView):
         if serializer.is_valid():
             scan = serializer.save()
 
+            # Si un utilisateur est connecté, on le rattache au scan
+            # (sinon le scan reste anonyme, idUtilisateur=null)
             if request.user.is_authenticated:
                 scan.idUtilisateur = request.user
                 scan.save()
 
+            # On renvoie le scan avec le serializer de lecture (inclut analyseIA, idTypeDechet...)
             return Response(
                 ScanDechetSerializer(scan).data,
                 status=status.HTTP_201_CREATED
@@ -50,12 +54,14 @@ class ScanDechetListView(APIView):
     )
     def get(self, request):
 
+        # Pas connecté = pas d'historique personnel à afficher
         if not request.user.is_authenticated:
             return Response(
                 [],
                 status=status.HTTP_200_OK
             )
 
+        # Chaque utilisateur ne voit que ses propres scans, les plus récents en premier
         scans = ScanDechet.objects.filter(
             idUtilisateur=request.user
         ).order_by('-dateScan')
