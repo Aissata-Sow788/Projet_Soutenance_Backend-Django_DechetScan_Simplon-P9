@@ -1,6 +1,7 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.permissions import AllowAny
 
 from drf_spectacular.utils import extend_schema
 from rest_framework.parsers import MultiPartParser, FormParser
@@ -14,7 +15,9 @@ from .serializers import (
 
 class ScanDechetCreateView(APIView):
 
-    # Nécessaire pour recevoir un fichier (photo) dans la requête, pas juste du JSON
+    # Autorise les visiteurs non connectés à scanner
+    permission_classes = [AllowAny]
+    # Nécessaire pour recevoir un fichier (photo) dans la requête
     parser_classes = [MultiPartParser, FormParser]
 
     @extend_schema(
@@ -29,13 +32,12 @@ class ScanDechetCreateView(APIView):
         if serializer.is_valid():
             scan = serializer.save()
 
-            # Si un utilisateur est connecté, on le rattache au scan
-            # (sinon le scan reste anonyme, idUtilisateur=null)
+            # Rattache le scan à l'utilisateur seulement s'il est connecté
             if request.user.is_authenticated:
                 scan.idUtilisateur = request.user
                 scan.save()
 
-            # On renvoie le scan avec le serializer de lecture (inclut analyseIA, idTypeDechet...)
+            # Renvoie le scan avec le serializer de lecture (inclut analyseIA)
             return Response(
                 ScanDechetSerializer(scan).data,
                 status=status.HTTP_201_CREATED
@@ -49,6 +51,9 @@ class ScanDechetCreateView(APIView):
 
 class ScanDechetListView(APIView):
 
+    # Autorise l'appel même sans connexion
+    permission_classes = [AllowAny]
+
     @extend_schema(
         responses=ScanDechetSerializer(many=True)
     )
@@ -61,7 +66,7 @@ class ScanDechetListView(APIView):
                 status=status.HTTP_200_OK
             )
 
-        # Chaque utilisateur ne voit que ses propres scans, les plus récents en premier
+        # Scans de l'utilisateur, les plus récents en premier
         scans = ScanDechet.objects.filter(
             idUtilisateur=request.user
         ).order_by('-dateScan')

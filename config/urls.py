@@ -15,7 +15,7 @@ from drf_spectacular.views import (
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('api/scans/', include('scans.urls')),
+    path('api/', include('scans.urls')),
     path('api/', include('collecte.urls')),
 
     # Authentification et gestion des utilisateurs
