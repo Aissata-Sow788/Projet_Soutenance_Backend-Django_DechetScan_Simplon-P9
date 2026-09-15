@@ -6,7 +6,7 @@ from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 
-# Imports nécessaires pour Swagger
+# Imports nécessaires pour générer et afficher Swagger
 from drf_spectacular.views import (
     SpectacularAPIView,
     SpectacularSwaggerView,
