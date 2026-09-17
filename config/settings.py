@@ -13,6 +13,9 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 import os
 from pathlib import Path
 from dotenv import load_dotenv
+# Importe timedelta pour définir la durée de validité des tokens.
+from datetime import timedelta
+
 
 load_dotenv()  # charge les variables du fichier .env dans os.environ
 
@@ -179,13 +182,39 @@ MAILERS = {
     },
 }
 
+# Configuration de Django REST Framework.
 REST_FRAMEWORK = {
+
+    # Utilise JWT pour authentifier les utilisateurs.
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     ],
+
+    # Protège les endpoints par défaut.
+    # Les vues publiques pourront utiliser AllowAny individuellement.
     'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.AllowAny',
+        'rest_framework.permissions.IsAuthenticated',
     ],
-        # Indique à DRF-Spectacular d'utiliser son générateur OpenAPI.
+
+    # Indique à DRF-Spectacular d'utiliser son générateur OpenAPI.
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+}
+
+# Configuration des tokens JWT.
+SIMPLE_JWT = {
+
+    # Le token d'accès reste valide pendant 30 minutes.
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=30),
+
+    # Le refresh token reste valide pendant 7 jours.
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+
+    # Ne génère pas automatiquement un nouveau refresh token.
+    'ROTATE_REFRESH_TOKENS': False,
+
+    # Aucun refresh token n'est placé en blacklist lors du renouvellement.
+    'BLACKLIST_AFTER_ROTATION': False,
+
+    # Ne met pas à jour last_login à chaque connexion.
+    'UPDATE_LAST_LOGIN': False,
 }

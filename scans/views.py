@@ -2,6 +2,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import AllowAny
+from rest_framework.permissions import IsAuthenticated
 
 from drf_spectacular.utils import extend_schema
 from rest_framework.parsers import MultiPartParser, FormParser
@@ -20,10 +21,7 @@ class ScanDechetCreateView(APIView):
     # Nécessaire pour recevoir un fichier (photo) dans la requête
     parser_classes = [MultiPartParser, FormParser]
 
-    @extend_schema(
-        request=ScanDechetCreationSerializer,
-        responses=ScanDechetSerializer
-    )
+    @extend_schema(request=ScanDechetCreationSerializer, responses=ScanDechetSerializer)
     def post(self, request):
         serializer = ScanDechetCreationSerializer(
             data=request.data
@@ -51,32 +49,29 @@ class ScanDechetCreateView(APIView):
 
 class ScanDechetListView(APIView):
 
-    # Autorise l'appel même sans connexion
-    permission_classes = [AllowAny]
+    # L'historique est personnel :
+    # l'utilisateur doit donc être connecté avec un JWT valide.
+    permission_classes = [IsAuthenticated]
 
     @extend_schema(
         responses=ScanDechetSerializer(many=True)
     )
     def get(self, request):
 
-        # Pas connecté = pas d'historique personnel à afficher
+        # Si aucun utilisateur n'est authentifié, retourne une liste vide.
         if not request.user.is_authenticated:
-            return Response(
-                [],
-                status=status.HTTP_200_OK
-            )
+            return Response([], status=status.HTTP_200_OK)
 
-        # Scans de l'utilisateur, les plus récents en premier
-        scans = ScanDechet.objects.filter(
-            idUtilisateur=request.user
-        ).order_by('-dateScan')
+        # Récupère uniquement les scans appartenant à cet utilisateur.
+        scans = ScanDechet.objects.filter(idUtilisateur=request.user).order_by('-dateScan')
 
-        serializer = ScanDechetSerializer(
-            scans,
-            many=True
-        )
+        # Affiche les scans trouvés dans le terminal Django.
+        print("SCANS TROUVÉS :", list(
+            scans.values('idScan', 'idUtilisateur', 'dateScan')
+        ))
 
-        return Response(
-            serializer.data,
-            status=status.HTTP_200_OK
-        )
+        # Sérialise les scans.
+        serializer = ScanDechetSerializer(scans, many=True)
+
+        # Retourne les données à Angular.
+        return Response(serializer.data, status=status.HTTP_200_OK)

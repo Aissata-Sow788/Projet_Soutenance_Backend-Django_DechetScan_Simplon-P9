@@ -1,6 +1,7 @@
 from rest_framework import status, viewsets
 from rest_framework.response import Response
-
+#les permissions de Django REST Framework.
+from rest_framework.permissions import AllowAny
 from .models import Utilisateur
 from .serializers import InscriptionSerializer, ConnexionSerializer
 from rest_framework_simplejwt.views import TokenObtainPairView
@@ -19,6 +20,10 @@ class InscriptionViewSet(viewsets.ModelViewSet):
 
     # Serializer utilisé pour valider les données d'inscription
     serializer_class = InscriptionSerializer
+
+    # Autorise l'inscription sans être connecté.
+    permission_classes = [AllowAny]
+
 
     # Pour l'inscription, on autorise uniquement les requêtes POST
     http_method_names = ['post']
@@ -48,6 +53,9 @@ class ConnexionViewSet(TokenObtainPairView):
     # et de générer les tokens JWT.
 
     serializer_class = ConnexionSerializer
+
+    # Autorise la connexion sans être déjà authentifié.
+    permission_classes = [AllowAny]
 
 class UtilisateurConnecteView(APIView):
      # Cette permission oblige l'utilisateur
@@ -82,6 +90,7 @@ class GestionUtilisateurViewSet(viewsets.ReadOnlyModelViewSet):
 
         # Inverse l'état actuel du compte.
         utilisateur.is_active = not utilisateur.is_active
+        
 
         # Enregistre le nouvel état dans la base de données.
         utilisateur.save()
