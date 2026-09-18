@@ -7,35 +7,34 @@ from django.conf import settings
 from django.conf.urls.static import static
 
 # Imports nécessaires pour générer et afficher Swagger
-from drf_spectacular.views import (
-    SpectacularAPIView,
-    SpectacularSwaggerView,
-)
+from drf_spectacular.views import (SpectacularAPIView, SpectacularSwaggerView,)
 
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+
+    # Gestion des scans de déchets
     path('api/', include('scans.urls')),
+
+    # Gestion des points de collecte
     path('api/', include('collecte.urls')),
 
     # Authentification et gestion des utilisateurs
     path('api/auth/', include('users.urls')),
+
+    # Gestion des types de déchets et des conseils de tri
     path('api/', include('dechets.urls')),
 
+    # Gestion des notifications
+    path('api/notifications/', include('notifications.urls')),
+
     # Génère automatiquement le schéma OpenAPI
-    path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
+    path('api/schema/', SpectacularAPIView.as_view(), name='schema',),
 
     # Interface graphique Swagger
-    path(
-        'api/docs/',
-        SpectacularSwaggerView.as_view(url_name='schema'),
-        name='swagger-ui',
-    ),
+    path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui',),
 ]
 
+
 # Gestion des fichiers média en développement
-if settings.DEBUG:
-    urlpatterns += static(
-        settings.MEDIA_URL,
-        document_root=settings.MEDIA_ROOT
-    )
+if settings.DEBUG: urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

@@ -35,7 +35,13 @@ SECRET_KEY = 'django-insecure-cpa1oadkn5e_bj&p-2hkpn7zi0*-j)kr1wf=#+)ebbe_81imj2
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+# Autorise Django à recevoir les requêtes locales
+# provenant de n8n qui tourne dans Docker.
+ALLOWED_HOSTS = [
+    '127.0.0.1',
+    'localhost',
+    'host.docker.internal',
+]
 
 AUTH_USER_MODEL = 'users.Utilisateur'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
@@ -218,3 +224,8 @@ SIMPLE_JWT = {
     # Ne met pas à jour last_login à chaque connexion.
     'UPDATE_LAST_LOGIN': False,
 }
+
+# Secret partagé entre Django et n8n.
+# Il est stocké dans le fichier .env pour ne pas
+# être enregistré directement dans le code source.
+N8N_SECRET = os.getenv('N8N_SECRET')

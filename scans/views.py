@@ -1,3 +1,4 @@
+import requests
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -8,10 +9,7 @@ from drf_spectacular.utils import extend_schema
 from rest_framework.parsers import MultiPartParser, FormParser
 
 from .models import ScanDechet
-from .serializers import (
-    ScanDechetSerializer,
-    ScanDechetCreationSerializer
-)
+from .serializers import (ScanDechetSerializer, ScanDechetCreationSerializer)
 
 
 class ScanDechetCreateView(APIView):
@@ -21,31 +19,68 @@ class ScanDechetCreateView(APIView):
     # Nécessaire pour recevoir un fichier (photo) dans la requête
     parser_classes = [MultiPartParser, FormParser]
 
-    @extend_schema(request=ScanDechetCreationSerializer, responses=ScanDechetSerializer)
+    @extend_schema(
+        request=ScanDechetCreationSerializer,
+        responses=ScanDechetSerializer
+    )
     def post(self, request):
+        # Vérifie et enregistre la photo envoyée par Angular.
         serializer = ScanDechetCreationSerializer(
             data=request.data
         )
 
         if serializer.is_valid():
+            # Enregistre le scan dans la base de données.
             scan = serializer.save()
 
-            # Rattache le scan à l'utilisateur seulement s'il est connecté
+            # Rattache le scan à l'utilisateur seulement s'il est connecté.
             if request.user.is_authenticated:
                 scan.idUtilisateur = request.user
                 scan.save()
 
-            # Renvoie le scan avec le serializer de lecture (inclut analyseIA)
+                # Prépare les données qui seront envoyées à n8n.
+                donnees_n8n = {
+                    'idScan': scan.idScan,
+                    'message': 'Merci pour votre scan !'
+                }
+
+                try:
+                    # Appelle le Webhook n8n après la création du scan.
+                    # Cette URL est l'URL de production du Webhook.
+                    response_n8n = requests.post(
+                        'http://localhost:5678/webhook/dechetscan/scan',
+                        json=donnees_n8n,
+                        timeout=5
+                    )
+
+                    # Affiche le résultat de l'appel n8n
+                    # dans le terminal Django pour faciliter les tests.
+                    print(
+                        'Réponse n8n :',
+                        response_n8n.status_code,
+                        response_n8n.text
+                    )
+
+                except requests.RequestException as erreur:
+                    # Une erreur n8n ne doit pas empêcher
+                    # l'enregistrement du scan dans Django.
+                    print(
+                        'Erreur lors de l appel du Webhook n8n :',
+                        erreur
+                    )
+
+            # Renvoie le scan avec le serializer de lecture
+            # qui inclut notamment analyseIA.
             return Response(
                 ScanDechetSerializer(scan).data,
                 status=status.HTTP_201_CREATED
             )
 
+        # Retourne les erreurs si les données du scan sont invalides.
         return Response(
             serializer.errors,
             status=status.HTTP_400_BAD_REQUEST
         )
-
 
 class ScanDechetListView(APIView):
 

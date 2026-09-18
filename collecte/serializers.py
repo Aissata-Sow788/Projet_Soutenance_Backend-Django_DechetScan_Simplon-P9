@@ -12,8 +12,7 @@ class PointCollecteSerializer(serializers.ModelSerializer):
         model = PointCollecte
         fields = [
             'idPoint', 'nom', 'ville', 'latitude', 'longitude',
-            'statut', 'heureOuverture', 'heureFermeture', 'dechetsAcceptes', 'gerePar'
-        ]
+            'statut', 'heureOuverture', 'heureFermeture', 'dechetsAcceptes', 'gerePar']
         read_only_fields = ['gerePar']
 
 
