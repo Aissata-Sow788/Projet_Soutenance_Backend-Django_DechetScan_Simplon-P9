@@ -1,28 +1,42 @@
 from rest_framework import serializers
-from .models import ScanDechet, AnalyseIA
+
+from .models import ScanDechet, AnalyseIA, DetectionIA
 from dechets.serializers import TypeDechetSerializer
 
 
+class DetectionIASerializer(serializers.ModelSerializer):
+    # Lecture : affiche les informations du type de déchet associé.
+    idTypeDechet = TypeDechetSerializer(read_only=True)
+
+    class Meta:
+        model = DetectionIA
+        fields = ['idDetection', 'objet', 'confiance', 'idTypeDechet']
+
+
 class AnalyseIASerializer(serializers.ModelSerializer):
+    # Une analyse peut contenir plusieurs détections.
+    detections = DetectionIASerializer(
+        many=True,
+        read_only=True
+    )
+
     class Meta:
         model = AnalyseIA
-        fields = ['idAnalyse', 'resultat', 'scoreConfiance', 'dateAnalyse']
+        fields = ['idAnalyse', 'dateAnalyse', 'detections']
 
 
 class ScanDechetSerializer(serializers.ModelSerializer):
-    # Lecture : affiche le type de déchet et l'analyse complète
-    idTypeDechet = TypeDechetSerializer(read_only=True)
+    # Lecture : affiche l'analyse IA et toutes ses détections.
     analyseIA = AnalyseIASerializer(read_only=True)
 
     class Meta:
         model = ScanDechet
-        fields = ['idScan', 'dateScan', 'photoUrl', 'idUtilisateur', 'idTypeDechet', 'analyseIA']
+        fields = ['idScan', 'dateScan', 'photoUrl', 'idUtilisateur', 'analyseIA']
         read_only_fields = ['idScan', 'idUtilisateur', 'dateScan']
 
 
 class ScanDechetCreationSerializer(serializers.ModelSerializer):
     # À la création, le citoyen envoie uniquement la photo.
-    # L'utilisateur connecté est récupéré automatiquement.
     photoUrl = serializers.ImageField(write_only=True)
 
     class Meta:
