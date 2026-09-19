@@ -23,6 +23,13 @@ load_dotenv()  # charge les variables du fichier .env dans os.environ
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
+# URL du microservice IA FastAPI
+IA_SERVICE_URL = os.getenv(
+    'IA_SERVICE_URL',
+    'http://127.0.0.1:8001'
+)
+
+
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
