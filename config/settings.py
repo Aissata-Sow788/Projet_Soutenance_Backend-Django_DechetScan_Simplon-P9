@@ -71,6 +71,10 @@ INSTALLED_APPS = [
     'notifications',
     'scans',
     'collecte',
+    # Permet à Simple JWT de mettre les anciens
+    # refresh tokens sur liste noire.
+    'rest_framework_simplejwt.token_blacklist',
+
 ]
 
 MIDDLEWARE = [
@@ -216,20 +220,18 @@ REST_FRAMEWORK = {
 # Configuration des tokens JWT.
 SIMPLE_JWT = {
 
-    # Le token d'accès reste valide pendant 30 minutes.
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=30),
+    # Durée de vie de l'access token.
+    # L'access token est utilisé pour les requêtes API.
+    'ACCESS_TOKEN_LIFETIME': timedelta(seconds=30),
 
-    # Le refresh token reste valide pendant 7 jours.
+    # Durée de vie maximale de la session avec le refresh token.
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
 
-    # Ne génère pas automatiquement un nouveau refresh token.
-    'ROTATE_REFRESH_TOKENS': False,
+    # Génère un nouveau refresh token à chaque renouvellement.
+    'ROTATE_REFRESH_TOKENS': True,
 
-    # Aucun refresh token n'est placé en blacklist lors du renouvellement.
-    'BLACKLIST_AFTER_ROTATION': False,
-
-    # Ne met pas à jour last_login à chaque connexion.
-    'UPDATE_LAST_LOGIN': False,
+    # Rend l'ancien refresh token inutilisable après rotation.
+    'BLACKLIST_AFTER_ROTATION': True,
 }
 
 # Secret partagé entre Django et n8n.

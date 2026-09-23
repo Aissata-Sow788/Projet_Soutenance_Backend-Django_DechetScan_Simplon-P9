@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from .models import Utilisateur
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from scans.models import ScanDechet
 
 
 class InscriptionSerializer(serializers.ModelSerializer):
@@ -104,6 +105,11 @@ class ConnexionSerializer(TokenObtainPairSerializer):
 
 
 class UtilisateurSerializer(serializers.ModelSerializer):
+
+    # Nombre total de scans réalisés par l'utilisateur.
+    # Ce champ est calculé automatiquement à partir des scans liés.
+    nombreScans = serializers.SerializerMethodField()
+
     # Serializer utilisé pour retourner les informations
     # de l'utilisateur actuellement connecté.
     class Meta:
@@ -111,10 +117,20 @@ class UtilisateurSerializer(serializers.ModelSerializer):
         model = Utilisateur
 
         # Informations retournées pour l'utilisateur connecté.
-        fields = ['id', 'first_name', 'last_name', 'email', 'telephone', 'ville', 'role', 'is_active', 'date_joined']
+        fields = ['id', 'first_name', 'last_name', 'email', 'telephone', 'ville', 'role', 'is_active', 'date_joined', 'last_login', 'nombreScans']
+
+    def get_nombreScans(self, obj):
+        # Compte tous les scans associés à cet utilisateur.
+            return ScanDechet.objects.filter(
+                idUtilisateur=obj
+            ).count()
 
 
 class GestionUtilisateurSerializer(serializers.ModelSerializer):
+
+    # Nombre total de scans réalisés par l'utilisateur.
+    nombreScans = serializers.SerializerMethodField()
+
     # Serializer utilisé par l'administrateur
     # pour consulter les informations des utilisateurs.
     class Meta:
@@ -122,4 +138,11 @@ class GestionUtilisateurSerializer(serializers.ModelSerializer):
         model = Utilisateur
 
         # Informations que l'administrateur peut consulter.
-        fields = ['id', 'first_name', 'last_name', 'email', 'telephone', 'ville', 'role', 'is_active', 'date_joined']
+        fields = ['id', 'first_name', 'last_name', 'email', 'telephone', 'ville', 'role', 'is_active', 'date_joined', 'last_login', 'nombreScans']
+
+
+            # Compte les scans associés à cet utilisateur.
+    def get_nombreScans(self, obj):
+        return ScanDechet.objects.filter(
+            idUtilisateur=obj
+        ).count()

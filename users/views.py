@@ -84,20 +84,36 @@ class GestionUtilisateurViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=True, methods=['patch'])
     def toggle_active(self, request, pk=None):
-        # Récupère l'utilisateur correspondant à l'identifiant
-        # présent dans l'URL.
+        # Récupère l'utilisateur correspondant à l'identifiant.
         utilisateur = self.get_object()
 
-        # Inverse l'état actuel du compte.
-        utilisateur.is_active = not utilisateur.is_active
-        
+        # Désactive définitivement le compte avec cette action.
+        utilisateur.is_active = False
 
-        # Enregistre le nouvel état dans la base de données.
-        utilisateur.save()
+        # Enregistre la modification dans la base de données.
+        utilisateur.save(update_fields=['is_active'])
 
-        # Retourne le nouvel état du compte.
+        # Retourne le nouveau statut du compte.
         return Response({
-            'message': 'Statut de l’utilisateur modifié avec succès.',
+            'message': 'Le compte a été désactivé avec succès.',
             'is_active': utilisateur.is_active
         })
+
+
+    @action(detail=True, methods=['delete'])
+    def supprimer(self, request, pk=None):
+        """
+        Supprime définitivement le compte sélectionné.
+        """
+        utilisateur = self.get_object()
+
+        utilisateur.delete()
+
+        return Response(
+            {
+                'message': 'Le compte a été supprimé avec succès.'
+            },
+            status=status.HTTP_200_OK
+        )
+
 
