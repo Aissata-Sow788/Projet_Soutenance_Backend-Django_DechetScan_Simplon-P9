@@ -24,6 +24,7 @@ from .serializers import (
     ScanDechetAdminSerializer
 )
 from collecte.models import PointCollecte
+from notifications.services import creer_notification_apres_scan
 
 
 def analyser_photo_avec_ia(scan):
@@ -141,39 +142,18 @@ class ScanDechetCreateView(APIView):
                     idTypeDechet=type_dechet
                 )
 
-            # Prépare les données pour n8n.
-            donnees_n8n = {
-                'idScan': scan.idScan,
-                'message': 'Merci pour votre scan !'
-            }
+            # Le message est renvoyé à Angular pour tous les scans.
+            # Le service Django crée aussi une notification persistante
+            # si le scan appartient à un utilisateur connecté.
+            message_remerciement = 'Merci pour votre scan !'
+            creer_notification_apres_scan(scan, message_remerciement)
 
-            try:
-                # Appelle le Webhook n8n.
-                response_n8n = requests.post(
-                    'http://localhost:5678/webhook/dechetscan/scan',
-                    json=donnees_n8n,
-                    timeout=5
-                )
+            # Renvoie le résultat à Angular. Les utilisateurs anonymes
+            # reçoivent le remerciement dans cette réponse, sans notification persistante.
+            reponse = ScanDechetSerializer(scan).data
+            reponse['messageRemerciement'] = message_remerciement
 
-                # Affiche la réponse n8n dans le terminal.
-                print(
-                    'Réponse n8n :',
-                    response_n8n.status_code,
-                    response_n8n.text
-                )
-
-            except requests.RequestException as erreur:
-
-                # Une erreur n8n ne doit pas empêcher
-                # le scan et l'analyse IA de fonctionner.
-                print(
-                    "Erreur lors de l'appel du Webhook n8n :",
-                    erreur
-                )
-
-            # 10. Renvoie le scan avec son analyse,
-            # ses détections et les conseils de tri.
-            return Response(ScanDechetSerializer(scan).data, status=status.HTTP_201_CREATED)
+            return Response(reponse, status=status.HTTP_201_CREATED)
 
         # Retourne les erreurs si la photo est invalide.
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -243,9 +223,8 @@ class ScanDechetDetailView(APIView):
 
 class ScanDechetAdminListView(APIView):
 
-    # Seuls les utilisateurs connectés peuvent accéder
-    # à la liste des scans administrateur.
-    permission_classes = [IsAuthenticated]
+    # Les données administrateur sont réservées au rôle admin.
+    permission_classes = [IsAdmin]
 
     def get(self, request):
 
@@ -301,9 +280,8 @@ class ScanDechetAdminListView(APIView):
 
 class DashboardStatistiquesView(APIView):
 
-    # Seuls les utilisateurs connectés peuvent consulter
-    # les statistiques du tableau de bord.
-    permission_classes = [IsAuthenticated]
+    # Les statistiques détaillées sont réservées au rôle admin.
+    permission_classes = [IsAdmin]
 
     def get(self, request):
 
@@ -409,12 +387,40 @@ class DashboardStatistiquesView(APIView):
 
         })
 
+class StatsAccueilPublicView(APIView):
+    """
+    Endpoint PUBLIC — accessible sans token JWT.
+    Retourne uniquement les statistiques nécessaires
+    à la page d'accueil pour les visiteurs non connectés :
+    - nombre total de scans
+    - nombre total d'utilisateurs
+    Ces données sont inoffensives à exposer publiquement.
+    """
+
+    # Accessible à tous — utilisateurs connectés ou non.
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+
+        # Nombre total de scans enregistrés en base.
+        nombre_scans = ScanDechet.objects.count()
+
+        # Nombre total d'utilisateurs enregistrés.
+        User = get_user_model()
+        nombre_utilisateurs = User.objects.count()
+
+        return Response({
+            'nombreScans':       nombre_scans,
+            'nombreUtilisateurs': nombre_utilisateurs,
+        })
+
+
 # ============================================================
 # DÉTAIL D'UN SCAN POUR L'ADMINISTRATEUR
 # ============================================================
 
 class ScanDechetAdminDetailView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdmin]
 
     def get(self, request, idScan):
         try:

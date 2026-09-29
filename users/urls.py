@@ -1,5 +1,11 @@
 from rest_framework.routers import DefaultRouter
-from .views import InscriptionViewSet, ConnexionViewSet, UtilisateurConnecteView, GestionUtilisateurViewSet
+from .views import (
+    ChangementMotDePasseView,
+    InscriptionViewSet,
+    ConnexionViewSet,
+    UtilisateurConnecteView,
+    GestionUtilisateurViewSet,
+)
 from django.urls import path
 from rest_framework_simplejwt.views import TokenRefreshView
 
@@ -23,6 +29,11 @@ urlpatterns = [
 
     # Informations de l'utilisateur connecté.
     path('me/', UtilisateurConnecteView.as_view(), name='me'),
+    path(
+        'me/password/',
+        ChangementMotDePasseView.as_view(),
+        name='me-password',
+    ),
 ]
 
 

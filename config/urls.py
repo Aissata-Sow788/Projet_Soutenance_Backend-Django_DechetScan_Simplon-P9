@@ -16,17 +16,26 @@ urlpatterns = [
     # Gestion des scans de déchets
     path('api/', include('scans.urls')),
 
-    # Gestion des points de collecte
+    # Gestion des points de collecte et des collectes
     path('api/', include('collecte.urls')),
 
     # Authentification et gestion des utilisateurs
     path('api/auth/', include('users.urls')),
 
-    # Gestion des types de déchets et des conseils de tri
+    # Gestion des types de déchets, conseils de tri et prix
     path('api/', include('dechets.urls')),
 
     # Gestion des notifications
     path('api/notifications/', include('notifications.urls')),
+
+    # Gestion des collecteurs et de leurs abonnements
+    path('api/', include('collecteurs.urls')),
+
+    # Gestion des demandes de collecte
+    path('api/', include('demandes.urls')),
+
+    # Gestion des ventes de déchets
+    path('api/', include('ventes.urls')),
 
     # Génère automatiquement le schéma OpenAPI
     path('api/schema/', SpectacularAPIView.as_view(), name='schema',),

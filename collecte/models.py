@@ -28,3 +28,77 @@ class PointCollecte(models.Model):
 
     def __str__(self):
         return self.nom
+
+
+class Collecte(models.Model):
+    """
+    Représente une opération de collecte de déchets réalisée par un collecteur.
+    Elle peut être planifiée à l'avance ou réalisée directement.
+
+    Relations depuis le diagramme :
+    - Collecteur "realise" une Collecte (idCollecteur FK, obligatoire)
+    - Collecte "concerne" un PointCollecte (idPoint FK, optionnel 0..1)
+    - Collecte "est basé sur" une DemandeCollecte (idDemande FK, optionnel 0..1)
+    - PointCollecte "accepte" des Collectes (déjà couvert par idPoint FK ci-dessus)
+    """
+
+    # Choix possibles pour le statut d'une collecte.
+    # Correspond exactement à l'énumération StatutCollecte du diagramme.
+    STATUT_CHOICES = [
+        ('planifiee', 'Planifiée'),
+        ('en_cours', 'En cours'),
+        ('terminee', 'Terminée'),
+        ('annulee', 'Annulée'),
+    ]
+
+    idCollecte = models.AutoField(primary_key=True)
+
+    # Collecteur professionnel qui réalise cette collecte.
+    # SET_NULL pour conserver l'historique si le collecteur est supprimé.
+    idCollecteur = models.ForeignKey(
+        'collecteurs.Collecteur',
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='collectes'
+    )
+
+    # Point de collecte concerné par cette opération (optionnel).
+    # NULL si la collecte se fait directement chez le citoyen (ramassage à domicile).
+    idPoint = models.ForeignKey(
+        PointCollecte,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='collectes'
+    )
+
+    # Demande de collecte à l'origine de cette opération (optionnel).
+    # NULL si la collecte n'est pas liée à une demande spécifique.
+    idDemande = models.ForeignKey(
+        'demandes.DemandeCollecte',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='collectes'
+    )
+
+    # Date et heure prévues pour la collecte.
+    datePlanifiee = models.DateTimeField()
+
+    # Statut actuel de la collecte.
+    statut = models.CharField(
+        max_length=20,
+        choices=STATUT_CHOICES,
+        default='planifiee'
+    )
+
+    # Date et heure réelles de réalisation de la collecte.
+    # NULL tant que la collecte n'est pas terminée.
+    dateRealisation = models.DateTimeField(null=True, blank=True)
+
+    # Quantité totale de déchets récupérés en kilogrammes.
+    # NULL tant que la collecte n'est pas terminée.
+    quantiteRecuperee = models.FloatField(null=True, blank=True)
+
+    def __str__(self):
+        return f"Collecte #{self.idCollecte} - {self.statut} ({self.datePlanifiee.date()})"

@@ -3,7 +3,12 @@ from rest_framework.response import Response
 #les permissions de Django REST Framework.
 from rest_framework.permissions import AllowAny
 from .models import Utilisateur
-from .serializers import InscriptionSerializer, ConnexionSerializer
+from .serializers import (
+    ChangementMotDePasseSerializer,
+    InscriptionSerializer,
+    ConnexionSerializer,
+    ProfilUtilisateurModificationSerializer,
+)
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework.permissions import IsAuthenticated
 from .serializers import UtilisateurSerializer
@@ -70,6 +75,33 @@ class UtilisateurConnecteView(APIView):
          # Retourne les informations de l'utilisateur connecté. 
         return Response(serializer.data)
 
+    def patch(self, request):
+        """Met à jour les informations personnelles du compte authentifié."""
+        serializer = ProfilUtilisateurModificationSerializer(
+            request.user,
+            data=request.data,
+            partial=True,
+        )
+        serializer.is_valid(raise_exception=True)
+        utilisateur = serializer.save()
+        return Response(
+            UtilisateurSerializer(utilisateur).data,
+            status=status.HTTP_200_OK,
+        )
+
+
+class ChangementMotDePasseView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = ChangementMotDePasseSerializer(
+            data=request.data,
+            context={'request': request},
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response({'detail': 'Mot de passe modifié avec succès.'})
+
 
 class GestionUtilisateurViewSet(viewsets.ReadOnlyModelViewSet):
     # Récupère tous les utilisateurs depuis la base de données.
@@ -115,5 +147,3 @@ class GestionUtilisateurViewSet(viewsets.ReadOnlyModelViewSet):
             },
             status=status.HTTP_200_OK
         )
-
-

@@ -1,3 +1,8 @@
+import re
+
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.utils import translation
 from rest_framework import serializers
 from .models import Utilisateur
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
@@ -65,22 +70,32 @@ class ConnexionSerializer(TokenObtainPairSerializer):
 
     def validate(self, attrs):
         # Récupère l'identifiant saisi.
-        identifiant = attrs.get('identifiant')
+        identifiant = (attrs.get('identifiant') or '').strip()
 
         # Récupère le mot de passe saisi.
         password = attrs.get('password')
 
         # Recherche l'utilisateur avec son email.
         utilisateur = Utilisateur.objects.filter(
-            email=identifiant
+            email__iexact=identifiant
         ).first()
 
-        # Si aucun utilisateur n'est trouvé avec l'email,
-        # recherche avec le numéro de téléphone.
+        # Ignore les espaces, indicatifs et séparateurs saisis autour du téléphone.
         if utilisateur is None:
-            utilisateur = Utilisateur.objects.filter(
-                telephone=identifiant
-            ).first()
+            telephone_normalise = self.normaliser_telephone(identifiant)
+            if telephone_normalise:
+                utilisateurs_avec_telephone = Utilisateur.objects.exclude(
+                    telephone__isnull=True
+                ).exclude(telephone='')
+                utilisateur = next(
+                    (
+                        candidat
+                        for candidat in utilisateurs_avec_telephone
+                        if self.normaliser_telephone(candidat.telephone)
+                        == telephone_normalise
+                    ),
+                    None
+                )
 
         # Si aucun compte ne correspond à l'identifiant.
         if utilisateur is None:
@@ -94,6 +109,11 @@ class ConnexionSerializer(TokenObtainPairSerializer):
                 'Mot de passe incorrect.'
             )
 
+        if not utilisateur.is_active:
+            raise serializers.ValidationError(
+                'Ce compte est désactivé.'
+            )
+
         # Génère le token JWT pour l'utilisateur.
         refresh = self.get_token(utilisateur)
 
@@ -102,6 +122,14 @@ class ConnexionSerializer(TokenObtainPairSerializer):
             'refresh': str(refresh),
             'access': str(refresh.access_token)
         }
+
+    @staticmethod
+    def normaliser_telephone(telephone):
+        """Convertit les variantes du numéro sénégalais en format comparable."""
+        chiffres = re.sub(r'\D', '', telephone)
+        if chiffres.startswith('221') and len(chiffres) == 12:
+            return chiffres[3:]
+        return chiffres
 
 
 class UtilisateurSerializer(serializers.ModelSerializer):
@@ -124,6 +152,61 @@ class UtilisateurSerializer(serializers.ModelSerializer):
             return ScanDechet.objects.filter(
                 idUtilisateur=obj
             ).count()
+
+
+class ProfilUtilisateurModificationSerializer(serializers.ModelSerializer):
+    """Autorise uniquement la modification des coordonnées du compte connecté."""
+
+    telephone = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+    )
+
+    class Meta:
+        model = Utilisateur
+        fields = ['first_name', 'last_name', 'email', 'telephone', 'ville']
+
+    def validate_telephone(self, telephone):
+        # La base autorise NULL mais exige l'unicité des numéros renseignés.
+        return telephone or None
+
+
+class ChangementMotDePasseSerializer(serializers.Serializer):
+    ancienMotDePasse = serializers.CharField(write_only=True, trim_whitespace=False)
+    nouveauMotDePasse = serializers.CharField(write_only=True, trim_whitespace=False)
+    confirmationMotDePasse = serializers.CharField(
+        write_only=True,
+        trim_whitespace=False,
+    )
+
+    def validate(self, attrs):
+        utilisateur = self.context['request'].user
+        if not utilisateur.check_password(attrs['ancienMotDePasse']):
+            raise serializers.ValidationError({
+                'ancienMotDePasse': 'Le mot de passe actuel est incorrect.'
+            })
+
+        if attrs['nouveauMotDePasse'] != attrs['confirmationMotDePasse']:
+            raise serializers.ValidationError({
+                'confirmationMotDePasse': 'Les mots de passe ne correspondent pas.'
+            })
+
+        with translation.override('fr'):
+            try:
+                validate_password(attrs['nouveauMotDePasse'], user=utilisateur)
+            except DjangoValidationError as error:
+                raise serializers.ValidationError({
+                    'nouveauMotDePasse': list(error.messages)
+                }) from error
+
+        return attrs
+
+    def save(self, **kwargs):
+        utilisateur = self.context['request'].user
+        utilisateur.set_password(self.validated_data['nouveauMotDePasse'])
+        utilisateur.save(update_fields=['password'])
+        return utilisateur
 
 
 class GestionUtilisateurSerializer(serializers.ModelSerializer):

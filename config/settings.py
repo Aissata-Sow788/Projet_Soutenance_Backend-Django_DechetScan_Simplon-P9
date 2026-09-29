@@ -29,6 +29,21 @@ IA_SERVICE_URL = os.getenv(
     'http://127.0.0.1:8001'
 )
 
+PAYDUNYA_MASTER_KEY = os.getenv('PAYDUNYA_MASTER_KEY', '')
+PAYDUNYA_PRIVATE_KEY = os.getenv('PAYDUNYA_PRIVATE_KEY', '')
+PAYDUNYA_PUBLIC_KEY = os.getenv('PAYDUNYA_PUBLIC_KEY', '')
+PAYDUNYA_TOKEN = os.getenv('PAYDUNYA_TOKEN', '')
+PAYDUNYA_MODE = os.getenv('PAYDUNYA_MODE', 'test')
+PAYDUNYA_CALLBACK_URL = os.getenv('PAYDUNYA_CALLBACK_URL', '')
+NGROK_AGENT_API_URL = os.getenv(
+    'NGROK_AGENT_API_URL',
+    'http://127.0.0.1:4040/api/tunnels',
+)
+PAYDUNYA_FRONTEND_URL = os.getenv('PAYDUNYA_FRONTEND_URL', 'http://localhost:4200')
+PAYDUNYA_STORE_PHONE = os.getenv('PAYDUNYA_STORE_PHONE', '')
+PAYDUNYA_STORE_ADDRESS = os.getenv('PAYDUNYA_STORE_ADDRESS', 'Dakar, Sénégal')
+PAYDUNYA_STORE_WEBSITE = os.getenv('PAYDUNYA_STORE_WEBSITE', 'http://localhost:4200')
+
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
@@ -42,8 +57,7 @@ SECRET_KEY = 'django-insecure-cpa1oadkn5e_bj&p-2hkpn7zi0*-j)kr1wf=#+)ebbe_81imj2
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-# Autorise Django à recevoir les requêtes locales
-# provenant de n8n qui tourne dans Docker.
+# Hôtes locaux utilisés par Django pendant le développement.
 ALLOWED_HOSTS = [
     '127.0.0.1',
     'localhost',
@@ -71,6 +85,12 @@ INSTALLED_APPS = [
     'notifications',
     'scans',
     'collecte',
+    # Nouvelle app : profils collecteurs et abonnements.
+    'collecteurs',
+    # Nouvelle app : demandes de collecte soumises par les citoyens.
+    'demandes',
+    # Nouvelle app : ventes de déchets entre citoyens et collecteurs.
+    'ventes',
     # Permet à Simple JWT de mettre les anciens
     # refresh tokens sur liste noire.
     'rest_framework_simplejwt.token_blacklist',
@@ -156,7 +176,7 @@ SPECTACULAR_SETTINGS = {
     'TITLE': 'DechetScan API',
 
     # Description de ton API
-    'DESCRIPTION': 'API backend de l’application DechetScan',
+    'DESCRIPTION': "API backend de l'application DechetScan",
 
     # Version actuelle de l'API
     'VERSION': '1.0.0',
@@ -164,13 +184,24 @@ SPECTACULAR_SETTINGS = {
     # Permet de déclarer l'authentification JWT dans Swagger
     'SERVE_INCLUDE_SCHEMA': False,
 
-
     # Sépare les schémas de lecture et d'envoi
     # pour gérer correctement les fichiers
     'COMPONENT_SPLIT_REQUEST': True,
 
+    # Déclare le schéma de sécurité JWT pour Swagger.
+    # Cela ajoute le bouton 'Authorize' dans Swagger UI
+    # où tu peux coller ton token Bearer.
+    'SECURITY': [{'BearerAuth': []}],
+    'COMPONENTS': {
+        'securitySchemes': {
+            'BearerAuth': {
+                'type': 'http',
+                'scheme': 'bearer',
+                'bearerFormat': 'JWT',
+            }
+        }
+    },
 }
-
 
 # Internationalization
 # https://docs.djangoproject.com/en/6.1/topics/i18n/
@@ -221,8 +252,9 @@ REST_FRAMEWORK = {
 SIMPLE_JWT = {
 
     # Durée de vie de l'access token.
-    # L'access token est utilisé pour les requêtes API.
-    'ACCESS_TOKEN_LIFETIME': timedelta(seconds=30),
+    # Mis à 1 heure pour faciliter les tests (était 30 secondes).
+    # À remettre à une valeur courte en production pour la sécurité.
+    'ACCESS_TOKEN_LIFETIME': timedelta(hours=1),
 
     # Durée de vie maximale de la session avec le refresh token.
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
@@ -233,8 +265,3 @@ SIMPLE_JWT = {
     # Rend l'ancien refresh token inutilisable après rotation.
     'BLACKLIST_AFTER_ROTATION': True,
 }
-
-# Secret partagé entre Django et n8n.
-# Il est stocké dans le fichier .env pour ne pas
-# être enregistré directement dans le code source.
-N8N_SECRET = os.getenv('N8N_SECRET')

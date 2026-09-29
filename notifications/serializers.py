@@ -4,7 +4,7 @@ from .models import Notification
 
 class NotificationSerializer(serializers.ModelSerializer):
     # Transforme les notifications Django en données JSON
-    # utilisables par Angular et n8n.
+    # utilisables par l'interface Angular.
     class Meta:
         model = Notification
 
