@@ -57,12 +57,14 @@ SECRET_KEY = 'django-insecure-cpa1oadkn5e_bj&p-2hkpn7zi0*-j)kr1wf=#+)ebbe_81imj2
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-# Hôtes locaux utilisés par Django pendant le développement.
-ALLOWED_HOSTS = [
-    '127.0.0.1',
-    'localhost',
-    'host.docker.internal',
-]
+# Hôtes autorisés à accéder au backend.
+# En Docker, on lit la variable DJANGO_ALLOWED_HOSTS depuis .env.
+# os.getenv retourne une chaîne "localhost,127.0.0.1,backend"
+# qu'on split sur la virgule pour obtenir une liste Python.
+ALLOWED_HOSTS = os.getenv(
+    'DJANGO_ALLOWED_HOSTS',
+    'localhost,127.0.0.1,host.docker.internal'
+).split(',')
 
 AUTH_USER_MODEL = 'users.Utilisateur'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
@@ -143,11 +145,18 @@ WSGI_APPLICATION = 'config.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'dechetscan_project',
-        'USER': 'dechetscan_user',
-       'PASSWORD': os.getenv('DB_PASSWORD'),
-        'HOST': 'localhost',
-        'PORT': '3306',
+        # Nom de la base lu depuis la variable d'environnement.
+        # En Docker, cette variable vient du docker-compose.yml.
+        # En local, elle vient du fichier .env.
+        'NAME': os.getenv('MYSQL_DATABASE', 'dechetscan_project'),
+        # Utilisateur MySQL applicatif
+        'USER': os.getenv('MYSQL_USER', 'dechetscan_user'),
+        # Mot de passe lu depuis l'environnement (jamais en dur)
+        'PASSWORD': os.getenv('MYSQL_PASSWORD', ''),
+        # En Docker : nom du service MySQL défini dans docker-compose.
+        # En local  : 'localhost'
+        'HOST': os.getenv('MYSQL_HOST', 'localhost'),
+        'PORT': os.getenv('MYSQL_PORT', '3306'),
     }
 }
 
@@ -219,6 +228,11 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.1/howto/static-files/
 
 STATIC_URL = 'static/'
+
+# Dossier où Django rassemble tous les fichiers statiques
+# lors de la commande "python manage.py collectstatic"
+# Utilisé par Gunicorn/Nginx pour les servir en production.
+STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 
 # Email

@@ -1,0 +1,38 @@
+# =============================================================
+# .dockerignore — Backend Django
+# =============================================================
+# Ce fichier fonctionne comme .gitignore mais pour Docker.
+# Il indique à Docker quels fichiers NE PAS copier dans l'image.
+# Cela rend l'image plus légère et le build plus rapide.
+# =============================================================
+
+# Environnement virtuel Python (on réinstalle dans le conteneur)
+venv/
+env/
+
+# Fichiers Python compilés (inutiles dans le conteneur)
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Dossier Git (historique de versions, inutile dans l'image)
+.git/
+.gitignore
+
+# Fichier .env local (les variables viennent du docker-compose)
+.env
+
+# Fichiers médias uploadés (montés via volume docker-compose)
+media/
+
+# Fichiers statiques collectés (générés au démarrage)
+staticfiles/
+
+# Logs
+*.log
+
+# Cache pytest / coverage
+.pytest_cache/
+.coverage
+htmlcov/

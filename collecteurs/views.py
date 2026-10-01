@@ -119,32 +119,37 @@ def message_erreur_paydunya(error):
 
 def obtenir_url_callback_paydunya():
     if settings.PAYDUNYA_MODE == 'test':
-        try:
-            with urlopen(settings.NGROK_AGENT_API_URL, timeout=2) as response:
-                donnees = json.loads(response.read().decode('utf-8'))
-        except (HTTPError, URLError, TimeoutError, UnicodeDecodeError, json.JSONDecodeError):
-            donnees = {}
-
-        tunnels = donnees.get('tunnels', []) if isinstance(donnees, dict) else []
-        for tunnel in tunnels:
-            if not isinstance(tunnel, dict):
-                continue
-            url_publique = tunnel.get('public_url', '')
-            configuration = tunnel.get('config', {})
-            if not isinstance(configuration, dict):
-                continue
-            adresse_locale = configuration.get('addr', '')
+        # On n'essaie de contacter ngrok que si l'URL est configurée.
+        # En Docker, NGROK_AGENT_API_URL est vide → on saute directement
+        # au fallback PAYDUNYA_CALLBACK_URL.
+        ngrok_url = getattr(settings, 'NGROK_AGENT_API_URL', '') or ''
+        if ngrok_url:
             try:
-                adresse_locale = urlparse(adresse_locale)
-                url_publique = urlparse(url_publique)
-            except (TypeError, ValueError):
-                continue
-            if (
-                adresse_locale.port == 8000
-                and url_publique.scheme == 'https'
-                and url_publique.hostname
-            ):
-                return f'{url_publique.geturl().rstrip("/")}/api/paydunya/ipn/'
+                with urlopen(ngrok_url, timeout=2) as response:
+                    donnees = json.loads(response.read().decode('utf-8'))
+            except (HTTPError, URLError, TimeoutError, UnicodeDecodeError, json.JSONDecodeError):
+                donnees = {}
+
+            tunnels = donnees.get('tunnels', []) if isinstance(donnees, dict) else []
+            for tunnel in tunnels:
+                if not isinstance(tunnel, dict):
+                    continue
+                url_publique = tunnel.get('public_url', '')
+                configuration = tunnel.get('config', {})
+                if not isinstance(configuration, dict):
+                    continue
+                adresse_locale = configuration.get('addr', '')
+                try:
+                    adresse_locale = urlparse(adresse_locale)
+                    url_publique = urlparse(url_publique)
+                except (TypeError, ValueError):
+                    continue
+                if (
+                    adresse_locale.port == 8000
+                    and url_publique.scheme == 'https'
+                    and url_publique.hostname
+                ):
+                    return f'{url_publique.geturl().rstrip("/")}/api/paydunya/ipn/'
 
     return settings.PAYDUNYA_CALLBACK_URL or None
 

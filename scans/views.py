@@ -34,7 +34,11 @@ def analyser_photo_avec_ia(scan):
     """
 
     # URL du microservice FastAPI.
-    url = "http://127.0.0.1:8001/api/ia/analyse"
+    # On lit depuis settings.IA_SERVICE_URL qui vient de la variable
+    # d'environnement IA_SERVICE_URL.
+    # En local  : http://127.0.0.1:8001
+    # En Docker : http://ia-service:8001  (nom du service docker-compose)
+    url = f"{settings.IA_SERVICE_URL}/api/ia/analyse"
 
     # Détermine automatiquement le type MIME de l'image.
     # Exemple : .jpg -> image/jpeg, .png -> image/png.

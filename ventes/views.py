@@ -35,8 +35,8 @@ class VenteDechetViewSet(viewsets.ModelViewSet):
     - GET    /api/ventes/              → admin: toutes | collecteur: ses achats | citoyen: ses ventes
     - GET    /api/ventes/{id}/         → détail d'une vente
     - POST   /api/ventes/              → créer une vente (citoyen connecté)
-    - PATCH  /api/ventes/{id}/statut/  → mettre à jour le statut (admin)
-    - DELETE /api/ventes/{id}/         → supprimer une vente (admin)
+    - PATCH  /api/ventes/{id}/statut/  → mettre à jour le statut (collecteur)
+    - DELETE /api/ventes/{id}/         → supprimer une vente (collecteur)
     """
 
     def get_queryset(self):

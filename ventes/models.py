@@ -14,7 +14,7 @@ class VenteDechet(models.Model):
     - Collecteur "Achete" une vente (idCollecteur FK)
     - VenteDechet "concerne" un TypeDechet (idTypeDechet FK)
 
-    Il n'y a AUCUN lien avec DemandeCollecte ni avec Collecte.
+    
     """
 
     # Choix possibles pour le statut du paiement.
