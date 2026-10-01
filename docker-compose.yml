@@ -1,0 +1,269 @@
+# =============================================================
+# DOCKER-COMPOSE.YML — Orchestration de DechetScan
+# =============================================================
+# Docker Compose est un outil qui permet de définir et lancer
+# plusieurs conteneurs Docker en même temps, à partir d'un
+
+# "name" force le préfixe du projet Docker.
+# Sans cette ligne, Docker utilise le nom du dossier contenant
+# ce fichier comme préfixe. En le fixant à "dechetscan", les
+# volumes (dechetscan_mysql_data, dechetscan_backend_media)
+# restent identiques peu importe où se trouve ce fichier.
+name: dechetscan
+# seul fichier de configuration.
+#
+# Sans Docker Compose, il faudrait lancer chaque conteneur
+# manuellement avec une longue commande "docker run ...".
+# Avec Docker Compose, une seule commande lance tout :
+#   → docker compose up --build
+#
+# Ce fichier orchestre 4 services :
+#   1. mysql      → Base de données MySQL 8
+#   2. backend    → API Django DRF (port 8000)
+#   3. ia-service → Microservice FastAPI + Gemini (port 8001)
+#   4. frontend   → Angular compilé, servi par Nginx (port 4200)
+#
+# Ordre de démarrage :
+#   mysql → backend → ia-service → frontend
+# =============================================================
+
+
+# -------------------------------------------------------------
+# "services" : liste de tous les conteneurs à créer
+# Chaque clé sous "services" est le nom du conteneur.
+# Ce nom sert aussi de nom DNS interne : les conteneurs
+# peuvent se joindre par ce nom (ex: "backend", "mysql"...).
+# -------------------------------------------------------------
+services:
+
+
+  # ===========================================================
+  # SERVICE 1 : MySQL — Base de données
+  # ===========================================================
+  mysql:
+
+    # "image" : utilise une image Docker existante sur Docker Hub.
+    # On ne construit pas notre propre image ici, MySQL existe déjà.
+    # "mysql:8.0" = version 8.0 stable de MySQL.
+    image: mysql:8.0
+
+    # "container_name" : nom du conteneur créé.
+    # Sans ça, Docker génère un nom aléatoire.
+    container_name: dechetscan-mysql
+
+    # "restart: unless-stopped" : redémarre le conteneur
+    # automatiquement s'il plante, sauf si on l'a arrêté manuellement.
+    restart: unless-stopped
+
+    # "environment" : variables d'environnement injectées
+    # dans le conteneur. La syntaxe ${VAR} lit la valeur
+    # depuis le fichier .env du même dossier.
+    environment:
+      # Nom de la base de données à créer au premier démarrage
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      # Utilisateur applicatif (moins de droits que root)
+      MYSQL_USER: ${MYSQL_USER}
+      # Mot de passe de l'utilisateur applicatif
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      # Mot de passe root (super-admin MySQL)
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+
+    # "ports" : mappe un port de la machine hôte vers le conteneur.
+    # Format : "port_hote:port_conteneur"
+    # On utilise 3307 côté hôte car le port 3306 est déjà occupé
+    # par le MySQL local installé sur la machine.
+    # À l'intérieur du réseau Docker, MySQL reste accessible
+    # sur le port 3306 standard (les autres conteneurs ne sont
+    # pas affectés par ce changement).
+    ports:
+      - "3307:3306"
+
+    # "volumes" : montage de données persistantes.
+    # Sans volume, toutes les données MySQL seraient perdues
+    # à chaque "docker compose down".
+    # "mysql_data:/var/lib/mysql" → Docker stocke les données
+    # dans un volume nommé "mysql_data" qui survit aux redémarrages.
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+    # "networks" : réseau Docker interne partagé entre les services.
+    # Les conteneurs sur le même réseau peuvent se parler par nom.
+    networks:
+      - dechetscan-network
+
+    # "healthcheck" : vérifie que MySQL est vraiment prêt à
+    # accepter des connexions (pas juste démarré).
+    # Les autres services attendent ce healthcheck via "depends_on".
+    healthcheck:
+      # Commande exécutée pour tester la santé du service
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "--password=${MYSQL_ROOT_PASSWORD}"]
+      # Délai avant le premier test
+      start_period: 30s
+      # Intervalle entre chaque test
+      interval: 10s
+      # Délai max pour qu'un test réponde
+      timeout: 5s
+      # Nombre d'échecs avant de déclarer "unhealthy"
+      retries: 5
+
+
+  # ===========================================================
+  # SERVICE 2 : Backend Django DRF
+  # ===========================================================
+  backend:
+
+    # "build" : construit l'image depuis un Dockerfile.
+    # "context" = dossier source copié dans le conteneur.
+    # "dockerfile" = nom du Dockerfile à utiliser.
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    container_name: dechetscan-backend
+
+    restart: unless-stopped
+
+    environment:
+      # Clé secrète Django
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
+      # Mode debug
+      DJANGO_DEBUG: ${DJANGO_DEBUG}
+      # Hôtes autorisés
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS}
+
+      # Connexion MySQL
+      # MYSQL_HOST="mysql" = nom du service MySQL dans ce fichier
+      # Django utilisera ce nom DNS pour se connecter à la base
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+
+      # URL du microservice IA
+      # "ia-service" = nom du service FastAPI dans ce fichier
+      IA_SERVICE_URL: http://ia-service:8001
+
+      # Désactive la détection ngrok en Docker (ngrok ne tourne pas dans les conteneurs)
+      # Sans ça, Django essaie de joindre http://127.0.0.1:4040 → timeout 20s → 504
+      NGROK_AGENT_API_URL: ""
+
+      # Variables PayDunya
+      N8N_SECRET: ${N8N_SECRET}
+      PAYDUNYA_MASTER_KEY: ${PAYDUNYA_MASTER_KEY}
+      PAYDUNYA_PRIVATE_KEY: ${PAYDUNYA_PRIVATE_KEY}
+      PAYDUNYA_PUBLIC_KEY: ${PAYDUNYA_PUBLIC_KEY}
+      PAYDUNYA_TOKEN: ${PAYDUNYA_TOKEN}
+      PAYDUNYA_MODE: ${PAYDUNYA_MODE}
+      PAYDUNYA_CALLBACK_URL: ${PAYDUNYA_CALLBACK_URL}
+      PAYDUNYA_FRONTEND_URL: ${PAYDUNYA_FRONTEND_URL}
+      PAYDUNYA_STORE_PHONE: ${PAYDUNYA_STORE_PHONE}
+      PAYDUNYA_STORE_ADDRESS: ${PAYDUNYA_STORE_ADDRESS}
+      PAYDUNYA_STORE_WEBSITE: ${PAYDUNYA_STORE_WEBSITE}
+
+    ports:
+      - "8000:8000"
+
+    # "volumes" : monte le dossier media/ en dehors du conteneur.
+    # Les images uploadées par les utilisateurs sont ainsi
+    # conservées même si le conteneur est recréé.
+    volumes:
+      - backend_media:/app/media
+
+    # "depends_on" : démarre ce service seulement quand MySQL
+    # est "healthy" (healthcheck passé), pas juste démarré.
+    # Sans ça, Django démarrerait avant que MySQL soit prêt
+    # et échouerait à se connecter.
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+    networks:
+      - dechetscan-network
+
+
+  # ===========================================================
+  # SERVICE 3 : Microservice IA — FastAPI + Google Gemini
+  # ===========================================================
+  ia-service:
+
+    build:
+      context: ../DechetScan-IA
+      dockerfile: Dockerfile
+
+    container_name: dechetscan-ia
+
+    restart: unless-stopped
+
+    environment:
+      # Clé API Google Gemini pour l'analyse d'images
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+
+    ports:
+      - "8001:8001"
+
+    # Le microservice IA est indépendant de MySQL.
+    # Il n'a pas de "depends_on" car il ne se connecte
+    # pas à la base de données directement.
+
+    networks:
+      - dechetscan-network
+
+
+  # ===========================================================
+  # SERVICE 4 : Frontend Angular — Nginx
+  # ===========================================================
+  frontend:
+
+    build:
+      context: ../Projet_DechetScan
+      dockerfile: Dockerfile
+
+    container_name: dechetscan-frontend
+
+    restart: unless-stopped
+
+    # Port 4200 sur la machine hôte → port 80 dans le conteneur Nginx.
+    # Pour accéder à l'app : http://localhost:4200
+    ports:
+      - "4200:80"
+
+    # Le frontend dépend du backend et du microservice IA
+    # pour que les proxies Nginx fonctionnent dès le démarrage.
+    depends_on:
+      - backend
+      - ia-service
+
+    networks:
+      - dechetscan-network
+
+
+# =============================================================
+# VOLUMES — Stockage persistant
+# =============================================================
+# Les volumes nommés sont gérés par Docker et survivent
+# aux "docker compose down". Ils ne sont supprimés que par
+# "docker compose down -v" (avec le flag -v).
+#
+# mysql_data    → données MySQL (tables, lignes...)
+# backend_media → fichiers uploadés (photos de déchets)
+# =============================================================
+volumes:
+  mysql_data:
+  backend_media:
+
+
+# =============================================================
+# NETWORKS — Réseau interne Docker
+# =============================================================
+# Un réseau Docker crée un réseau virtuel privé entre les
+# conteneurs. Les conteneurs sur ce réseau peuvent se parler
+# par leur nom de service (mysql, backend, ia-service...).
+# De l'extérieur, seuls les ports publiés dans "ports" sont
+# accessibles. Le reste est isolé.
+# =============================================================
+networks:
+  dechetscan-network:
+    # "driver: bridge" = mode réseau standard Docker
+    # Crée un réseau virtuel isolé sur la machine hôte.
+    driver: bridge
