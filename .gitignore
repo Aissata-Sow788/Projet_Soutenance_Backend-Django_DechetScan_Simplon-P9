@@ -8,3 +8,4 @@ db.sqlite3
 *.log
 .env
 media/
+.env.docker.bak
