@@ -1,7 +1,12 @@
+from decimal import Decimal
+
+from django.db import transaction
 from rest_framework import serializers
-from .models import DemandeCollecte
+from scans.models import ScanDechet
+from dechets.models import PanierDechet, TypeDechet
+from dechets.services import reserver_quantites_paniers
 from dechets.serializers import TypeDechetSerializer
-from dechets.models import TypeDechet
+from .models import DetailDemandeCollecte, DemandeCollecte
 
 
 class CollecteResumeSuiviSerializer(serializers.Serializer):
@@ -79,6 +84,63 @@ class CollecteurAttribueSerializer(serializers.Serializer):
         return None
 
 
+class DemandeScanPhotoSerializer(serializers.ModelSerializer):
+    """Expose la photo et la date d'un scan lié à une catégorie demandée."""
+
+    class Meta:
+        model = ScanDechet
+        fields = ['idScan', 'dateScan', 'photoUrl']
+
+
+class DetailDemandeCollecteSerializer(serializers.ModelSerializer):
+    """Expose le compte d'objets et le poids réellement mesuré."""
+
+    photos = serializers.SerializerMethodField()
+    idTypeDechet = serializers.IntegerField(
+        source='idPanier.idTypeDechet.idTypeDechet',
+        read_only=True,
+    )
+    typeDechet = TypeDechetSerializer(source='idPanier.idTypeDechet', read_only=True)
+    # Maintient la lecture du champ utilisé par les anciennes versions Angular.
+    quantite = serializers.DecimalField(
+        source='poidsKg',
+        max_digits=12,
+        decimal_places=3,
+        read_only=True,
+    )
+
+    class Meta:
+        model = DetailDemandeCollecte
+        fields = [
+            'idDetail',
+            'idPanier',
+            'idTypeDechet',
+            'typeDechet',
+            'nombreObjets',
+            'poidsKg',
+            'quantite',
+            'photos',
+        ]
+
+    def get_photos(self, obj):
+        """Retourne les scans du citoyen correspondant à cette catégorie."""
+        # Les miniatures sont nécessaires sur le détail, pas dans la liste.
+        vue = self.context.get('view')
+        if vue is not None and vue.action == 'list':
+            return []
+
+        demande = obj.idDemande
+        return DemandeScanPhotoSerializer(
+            ScanDechet.objects.filter(
+                idUtilisateur=demande.idUtilisateur,
+                dateScan__lte=demande.dateDemande,
+                analyseIA__detections__idTypeDechet=obj.idPanier.idTypeDechet,
+            ).distinct().order_by('-dateScan'),
+            many=True,
+            context=self.context,
+        ).data
+
+
 class DemandeCollecteSerializer(serializers.ModelSerializer):
     """
     Serializer de lecture pour DemandeCollecte.
@@ -88,8 +150,12 @@ class DemandeCollecteSerializer(serializers.ModelSerializer):
     et la collecte liée (pour la page suivi du citoyen).
     """
 
-    # Affiche le type de déchet en entier (nom, description, conseil).
-    typeDechet = TypeDechetSerializer(source='idTypeDechet', read_only=True)
+    details = DetailDemandeCollecteSerializer(many=True, read_only=True)
+    idTypeDechet = serializers.SerializerMethodField()
+    typeDechet = serializers.SerializerMethodField()
+    quantite = serializers.SerializerMethodField()
+    poidsTotalKg = serializers.SerializerMethodField()
+    nombreObjets = serializers.SerializerMethodField()
 
     # Affiche l'email du citoyen qui a soumis la demande.
     emailUtilisateur = serializers.EmailField(
@@ -146,6 +212,34 @@ class DemandeCollecteSerializer(serializers.ModelSerializer):
 
         return CollecteResumeSuiviSerializer(collecte).data
 
+    @staticmethod
+    def _details(obj):
+        return list(obj.details.all())
+
+    def get_idTypeDechet(self, obj):
+        details = self._details(obj)
+        return details[0].idPanier.idTypeDechet_id if len(details) == 1 else None
+
+    def get_typeDechet(self, obj):
+        details = self._details(obj)
+        if len(details) != 1:
+            return None
+        return TypeDechetSerializer(details[0].idPanier.idTypeDechet).data
+
+    def get_quantite(self, obj):
+        # Le nom historique reste disponible pour les clients non encore migrés.
+        return self.get_poidsTotalKg(obj)
+
+    def get_poidsTotalKg(self, obj):
+        return sum((detail.poidsKg for detail in self._details(obj)), Decimal('0'))
+
+    def get_nombreObjets(self, obj):
+        details = self._details(obj)
+        # Une ancienne demande n'a pas de compteur fiable à agréger.
+        if any(detail.nombreObjets is None for detail in details):
+            return None
+        return sum(detail.nombreObjets for detail in details)
+
     class Meta:
         model = DemandeCollecte
         fields = [
@@ -158,6 +252,9 @@ class DemandeCollecteSerializer(serializers.ModelSerializer):
             'idTypeDechet',
             'typeDechet',
             'quantite',
+            'poidsTotalKg',
+            'nombreObjets',
+            'details',
             'typeDemande',
             'prixPropose',
             'quartier',
@@ -185,17 +282,70 @@ class DemandeCollecteSerializer(serializers.ModelSerializer):
         ]
 
 
-class DemandeCollecteCreationSerializer(serializers.ModelSerializer):
+class LigneDemandeCollecteCreationSerializer(serializers.Serializer):
+    """Valide le nombre d'objets sélectionné et le poids mesuré."""
+
+    idPanier = serializers.PrimaryKeyRelatedField(
+        queryset=PanierDechet.objects.select_related('idTypeDechet')
+    )
+    nombreObjets = serializers.IntegerField(min_value=1, required=False)
+    poidsKg = serializers.DecimalField(
+        max_digits=12,
+        decimal_places=3,
+        min_value=Decimal('0.001'),
+        required=False,
+    )
+    # Compatibilité temporaire avec les clients qui envoyaient le poids comme quantité.
+    quantite = serializers.DecimalField(
+        max_digits=12,
+        decimal_places=3,
+        min_value=Decimal('0.001'),
+        required=False,
+    )
+
+    def validate(self, attrs):
+        poids_saisi = attrs.pop('poidsKg', None)
+        poids_historique = attrs.pop('quantite', None)
+        poids = poids_saisi if poids_saisi is not None else poids_historique
+        if poids is None:
+            raise serializers.ValidationError({
+                'poidsKg': 'Le poids réellement mesuré est obligatoire.'
+            })
+        panier = attrs['idPanier']
+        attrs['poidsKg'] = poids
+        # Les anciens clients n'ayant pas de compteur engagent le stock disponible.
+        attrs['nombreObjets'] = attrs.get('nombreObjets') or panier.nombreDisponible
+        if attrs['nombreObjets'] <= 0:
+            raise serializers.ValidationError({
+                'nombreObjets': 'Aucun objet disponible dans ce panier.'
+            })
+        return attrs
+
+
+class DemandeCollecteCreationSerializer(serializers.Serializer):
     """
-    Serializer d'écriture pour créer une demande de collecte.
-    L'idUtilisateur est affecté automatiquement dans la vue
-    à partir de l'utilisateur connecté (request.user).
-    idTypeDechet accepte un entier (id du type de déchet).
+    Crée une demande contenant une ou plusieurs lignes de panier.
+    L'ancien format mono-catégorie reste accepté pendant la transition Angular.
     """
 
-    # Accepte l'id du type de déchet à l'écriture.
+    details = LigneDemandeCollecteCreationSerializer(
+        many=True,
+        required=False,
+        min_length=1,
+    )
+
+    # Compatibilité temporaire avec le formulaire actuel à catégorie unique.
     idTypeDechet = serializers.PrimaryKeyRelatedField(
-        queryset=TypeDechet.objects.all()
+        queryset=TypeDechet.objects.all(),
+        required=False,
+        write_only=True,
+    )
+    quantite = serializers.DecimalField(
+        max_digits=12,
+        decimal_places=3,
+        min_value=Decimal('0.001'),
+        required=False,
+        write_only=True,
     )
 
     # Coordonnées GPS envoyées automatiquement par le navigateur Angular.
@@ -203,19 +353,67 @@ class DemandeCollecteCreationSerializer(serializers.ModelSerializer):
     # la demande peut quand même être soumise.
     latitude = serializers.FloatField(required=False, allow_null=True)
     longitude = serializers.FloatField(required=False, allow_null=True)
+    typeDemande = serializers.ChoiceField(
+        choices=DemandeCollecte.TYPE_DEMANDE_CHOICES,
+        required=False,
+    )
+    prixPropose = serializers.FloatField(required=False, allow_null=True)
+    quartier = serializers.CharField(required=False, allow_blank=True)
+    dateSouhaitee = serializers.DateTimeField(required=False, allow_null=True)
 
-    class Meta:
-        model = DemandeCollecte
-        fields = [
-            'idTypeDechet',
-            'quantite',
-            'typeDemande',
-            'prixPropose',
-            'quartier',
-            'latitude',
-            'longitude',
-            'dateSouhaitee',
-        ]
+    def validate(self, attrs):
+        lignes = attrs.get('details')
+        type_dechet = attrs.get('idTypeDechet')
+        quantite = attrs.get('quantite')
+        if lignes is None:
+            if type_dechet is None or quantite is None:
+                raise serializers.ValidationError(
+                    {'details': 'Fournissez les paniers et quantités à faire ramasser.'}
+                )
+            try:
+                panier = PanierDechet.objects.get(
+                    idUtilisateur=self.context['request'].user,
+                    idTypeDechet=type_dechet,
+                )
+            except PanierDechet.DoesNotExist:
+                raise serializers.ValidationError(
+                    {'idTypeDechet': 'Aucun panier correspondant à cette catégorie.'}
+                )
+            lignes = [{
+                'idPanier': panier,
+                'nombreObjets': panier.nombreDisponible,
+                'poidsKg': quantite,
+            }]
+
+        panier_ids = [ligne['idPanier'].pk for ligne in lignes]
+        if len(panier_ids) != len(set(panier_ids)):
+            raise serializers.ValidationError(
+                {'details': 'Un panier ne peut apparaître qu’une seule fois.'}
+            )
+        attrs['details'] = lignes
+        return attrs
+
+    @transaction.atomic
+    def create(self, validated_data):
+        utilisateur = validated_data.pop('idUtilisateur')
+        lignes = validated_data.pop('details')
+        validated_data.pop('idTypeDechet', None)
+        validated_data.pop('quantite', None)
+        paniers = reserver_quantites_paniers(utilisateur, lignes)
+        demande = DemandeCollecte.objects.create(
+            idUtilisateur=utilisateur,
+            **validated_data,
+        )
+        DetailDemandeCollecte.objects.bulk_create([
+            DetailDemandeCollecte(
+                idDemande=demande,
+                idPanier=paniers[ligne['idPanier'].pk],
+                poidsKg=ligne['poidsKg'],
+                nombreObjets=ligne['nombreObjets'],
+            )
+            for ligne in lignes
+        ])
+        return demande
 
 
 class DemandeCollecteStatutSerializer(serializers.ModelSerializer):

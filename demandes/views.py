@@ -5,7 +5,12 @@ from rest_framework.response import Response
 from rest_framework import serializers as drf_serializers
 from django.db import transaction
 from django.db.models import Q
+from dechets.services import restituer_quantites_paniers
 from drf_spectacular.utils import extend_schema
+from notifications.services import (
+    notifier_collecteur_nouvelle_demande,
+    notifier_citoyen_statut_demande,
+)
 
 from users.permissions import IsAdmin
 from collecteurs.models import Collecteur
@@ -52,7 +57,9 @@ class DemandeCollecteViewSet(viewsets.ModelViewSet):
         # L'admin peut voir toutes les demandes.
         if utilisateur.is_authenticated and utilisateur.role == 'admin':
             return DemandeCollecte.objects.select_related(
-                'idUtilisateur', 'idTypeDechet', 'collecteurAttribue__idUtilisateur'
+                'idUtilisateur', 'collecteurAttribue__idUtilisateur'
+            ).prefetch_related(
+                'details__idPanier__idTypeDechet'
             ).order_by('-dateDemande')
 
         # Un collecteur validé voit toutes les demandes disponibles.
@@ -60,7 +67,9 @@ class DemandeCollecteViewSet(viewsets.ModelViewSet):
             collecteur = Collecteur.objects.get(idUtilisateur=utilisateur)
             if collecteur.statutValidation == 'valide':
                 return DemandeCollecte.objects.select_related(
-                    'idUtilisateur', 'idTypeDechet', 'collecteurAttribue__idUtilisateur'
+                    'idUtilisateur', 'collecteurAttribue__idUtilisateur'
+                ).prefetch_related(
+                    'details__idPanier__idTypeDechet'
                 ).filter(
                     Q(collecteurAttribue=collecteur) |
                     (Q(statut='en_attente') & ~Q(refuseurs=collecteur))
@@ -72,7 +81,9 @@ class DemandeCollecteViewSet(viewsets.ModelViewSet):
         return DemandeCollecte.objects.filter(
             idUtilisateur=utilisateur
         ).select_related(
-            'idUtilisateur', 'idTypeDechet', 'collecteurAttribue__idUtilisateur'
+            'idUtilisateur', 'collecteurAttribue__idUtilisateur'
+        ).prefetch_related(
+            'details__idPanier__idTypeDechet'
         ).order_by('-dateDemande')
 
     def get_serializer_class(self):
@@ -94,14 +105,14 @@ class DemandeCollecteViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         """Associe automatiquement l'utilisateur connecté à la demande."""
-        serializer.save(idUtilisateur=self.request.user)
+        demande = serializer.save(idUtilisateur=self.request.user)
+        notifier_collecteur_nouvelle_demande(demande)
 
     def create(self, request, *args, **kwargs):
         """Retourne la demande complète créée, dont son identifiant de suivi."""
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         self.perform_create(serializer)
-        headers = self.get_success_headers(serializer.data)
 
         demande = DemandeCollecteSerializer(
             serializer.instance,
@@ -110,7 +121,6 @@ class DemandeCollecteViewSet(viewsets.ModelViewSet):
         return Response(
             demande.data,
             status=status.HTTP_201_CREATED,
-            headers=headers
         )
 
     @extend_schema(
@@ -203,6 +213,7 @@ class DemandeCollecteViewSet(viewsets.ModelViewSet):
 
         # Recharge la demande avec ses relations pour la sérialisation.
         demande.refresh_from_db()
+        notifier_citoyen_statut_demande(demande, 'acceptee')
         return Response(
             DemandeCollecteSerializer(demande).data,
             status=status.HTTP_200_OK
@@ -239,6 +250,7 @@ class DemandeCollecteViewSet(viewsets.ModelViewSet):
 
             demande.refuseurs.add(collecteur)
 
+        notifier_citoyen_statut_demande(demande, 'refus_individuel')
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(detail=True, methods=['patch'], url_path='statut')
@@ -253,8 +265,6 @@ class DemandeCollecteViewSet(viewsets.ModelViewSet):
         Note : pour accepter une demande, utiliser /accepter/ à la place.
         """
         demande = self.get_object()
-
-        # Seul l'admin ou le collecteur affecté peut modifier le statut.
         collecteur = None
         if request.user.role != 'admin':
             try:
@@ -274,56 +284,83 @@ class DemandeCollecteViewSet(viewsets.ModelViewSet):
                     status=status.HTTP_403_FORBIDDEN
                 )
 
-            transitions = {
-                'acceptee': 'en_cours',
-                'en_cours': 'terminee',
-            }
-            statut_demande = request.data.get('statut')
-            if transitions.get(demande.statut) != statut_demande:
+        with transaction.atomic():
+            demande = DemandeCollecte.objects.select_for_update().get(
+                pk=demande.pk
+            )
+            ancien_statut = demande.statut
+            nouveau_statut = request.data.get('statut')
+
+            # Une demande annulée est terminale : son stock a déjà été rendu.
+            if demande.stockRestitue and nouveau_statut != 'annulee':
                 return Response(
-                    {'detail': 'Transition non autorisée. Une demande acceptée passe en cours, puis terminée.'},
-                    status=status.HTTP_400_BAD_REQUEST
+                    {'detail': 'Une demande annulée ne peut pas être réactivée.'},
+                    status=status.HTTP_409_CONFLICT
+                )
+            if demande.statut == 'terminee' and nouveau_statut != 'terminee':
+                return Response(
+                    {'detail': 'Une demande terminée ne peut pas être réouverte ou annulée.'},
+                    status=status.HTTP_409_CONFLICT
                 )
 
-            with transaction.atomic():
-                demande = DemandeCollecte.objects.select_for_update().get(
-                    pk=demande.pk
-                )
-                if (
-                    demande.collecteurAttribue_id != collecteur.pk or
-                    transitions.get(demande.statut) != statut_demande
-                ):
+            if collecteur:
+                transitions = {
+                    'acceptee': {'planifiee', 'en_cours'},
+                    'planifiee': 'en_cours',
+                    'en_cours': 'terminee',
+                }
+                transition_autorisee = transitions.get(demande.statut)
+                if isinstance(transition_autorisee, set):
+                    transition_permise = nouveau_statut in transition_autorisee
+                else:
+                    transition_permise = transition_autorisee == nouveau_statut
+                if not transition_permise:
                     return Response(
-                        {'detail': 'Le statut de cette demande a changé. Rechargez la page.'},
-                        status=status.HTTP_409_CONFLICT
+                        {'detail': 'Transition non autorisée. Une demande acceptée peut être planifiée ou passer en cours, puis une demande planifiée passe en cours avant d’être terminée.'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                if demande.collecteurAttribue_id != collecteur.pk:
+                    return Response(
+                        {'detail': 'Cette demande ne vous est pas attribuée.'},
+                        status=status.HTTP_403_FORBIDDEN
                     )
 
-                serializer = DemandeCollecteStatutSerializer(
-                    demande,
-                    data=request.data,
-                    partial=True
-                )
-                serializer.is_valid(raise_exception=True)
-                serializer.save()
-                return Response(
-                    DemandeCollecteSerializer(demande).data,
-                    status=status.HTTP_200_OK
-                )
-
-        serializer = DemandeCollecteStatutSerializer(
-            demande,
-            data=request.data,
-            partial=True
-        )
-
-        if serializer.is_valid():
-            serializer.save()
-            return Response(
-                DemandeCollecteSerializer(demande).data,
-                status=status.HTTP_200_OK
+            serializer = DemandeCollecteStatutSerializer(
+                demande,
+                data=request.data,
+                partial=True
             )
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+
+            if nouveau_statut == 'annulee' and not demande.stockRestitue:
+                # Le verrou et le marqueur garantissent une restitution unique.
+                restituer_quantites_paniers(demande.details.all())
+                demande.stockRestitue = True
+                demande.save(update_fields=['stockRestitue'])
+
+        if demande.statut != ancien_statut:
+            notifier_citoyen_statut_demande(demande, demande.statut)
 
         return Response(
-            serializer.errors,
-            status=status.HTTP_400_BAD_REQUEST
+            DemandeCollecteSerializer(
+                demande,
+                context=self.get_serializer_context()
+            ).data,
+            status=status.HTTP_200_OK
         )
+
+    def destroy(self, request, *args, **kwargs):
+        demande = self.get_object()
+        with transaction.atomic():
+            demande = DemandeCollecte.objects.select_for_update().get(
+                pk=demande.pk
+            )
+            # Les demandes terminées ou déjà annulées ne rendent pas le stock.
+            if (
+                not demande.stockRestitue
+                and demande.statut in {'en_attente', 'acceptee'}
+            ):
+                restituer_quantites_paniers(demande.details.all())
+            demande.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)

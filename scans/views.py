@@ -1,5 +1,6 @@
 import requests
 import mimetypes
+import logging
 
 from django.conf import settings
 from users.permissions import IsAdmin
@@ -15,7 +16,7 @@ from django.contrib.auth import get_user_model
 from drf_spectacular.utils import extend_schema
 from rest_framework.parsers import MultiPartParser, FormParser
 
-from dechets.models import TypeDechet
+from dechets.models import PanierDechet, TypeDechet
 
 from .models import ScanDechet, AnalyseIA, DetectionIA
 from .serializers import (
@@ -25,6 +26,18 @@ from .serializers import (
 )
 from collecte.models import PointCollecte
 from notifications.services import creer_notification_apres_scan
+
+
+logger = logging.getLogger(__name__)
+
+
+class IAServiceUnavailable(APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_detail = (
+        "Le service d’analyse est temporairement indisponible. "
+        "Veuillez réessayer dans quelques instants."
+    )
+    default_code = 'ia_service_unavailable'
 
 
 def analyser_photo_avec_ia(scan):
@@ -112,8 +125,17 @@ class ScanDechetCreateView(APIView):
                 scan.idUtilisateur = request.user
                 scan.save()
 
-            # Envoie la photo au microservice IA.
-            resultat_ia = analyser_photo_avec_ia(scan)
+            # Une panne IA ne doit pas laisser un scan incomplet en base.
+            try:
+                resultat_ia = analyser_photo_avec_ia(scan)
+            except requests.RequestException as erreur:
+                logger.exception(
+                    "Le microservice IA n'a pas pu analyser le scan %s.",
+                    scan.pk,
+                )
+                scan.photoUrl.delete(save=False)
+                scan.delete()
+                raise IAServiceUnavailable() from erreur
 
             # Crée l'analyse IA liée au scan.
             analyse = AnalyseIA.objects.create(
@@ -145,6 +167,17 @@ class ScanDechetCreateView(APIView):
                     idAnalyse=analyse,
                     idTypeDechet=type_dechet
                 )
+                if scan.idUtilisateur_id:
+                    # Le scan identifie une catégorie, mais ne doit pas prétendre
+                    # peser ni compter les objets du panier à la place du citoyen.
+                    PanierDechet.objects.get_or_create(
+                        idUtilisateur=scan.idUtilisateur,
+                        idTypeDechet=type_dechet,
+                        defaults={
+                            'nombreDisponible': 0,
+                            'unite': 'objet',
+                        },
+                    )
 
             # Le message est renvoyé à Angular pour tous les scans.
             # Le service Django crée aussi une notification persistante

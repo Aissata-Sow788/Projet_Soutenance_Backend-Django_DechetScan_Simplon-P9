@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
@@ -9,6 +10,47 @@ class TypeDechet(models.Model):
 
     def __str__(self):
         return self.nom
+
+
+class PanierDechet(models.Model):
+    """Nombre d'objets d'une catégorie conservés par un citoyen."""
+
+    idPanier = models.AutoField(primary_key=True)
+    idUtilisateur = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='paniersDechets',
+    )
+    idTypeDechet = models.ForeignKey(
+        TypeDechet,
+        on_delete=models.PROTECT,
+        related_name='paniers',
+    )
+    # Les anciennes valeurs en kilogrammes restent archivées, sans être
+    # réinterprétées comme un nombre d'objets lors de la migration.
+    quantiteHistoriqueKg = models.DecimalField(
+        max_digits=12,
+        decimal_places=3,
+        default=0,
+    )
+    nombreDisponible = models.PositiveIntegerField(default=0)
+    unite = models.CharField(max_length=20, default='objet')
+    dateMiseAJour = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['idUtilisateur', 'idTypeDechet'],
+                name='unique_panier_citoyen_type_dechet',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(nombreDisponible__gte=0),
+                name='panier_nombre_non_negative',
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.idUtilisateur} - {self.idTypeDechet} ({self.nombreDisponible} objets)"
 
 
 class ConseilTri(models.Model):
@@ -42,6 +84,15 @@ class PrixDechet(models.Model):
         TypeDechet,
         on_delete=models.CASCADE,
         related_name='prix'
+    )
+
+    # NULL conserve les anciens tarifs généraux gérés par l'administration.
+    idCollecteur = models.ForeignKey(
+        'collecteurs.Collecteur',
+        on_delete=models.CASCADE,
+        related_name='tarifs',
+        null=True,
+        blank=True,
     )
 
     # Prix d'achat en FCFA par kilogramme.

@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from rest_framework import serializers
 from .models import PointCollecte, Collecte
 from dechets.serializers import TypeDechetSerializer
@@ -56,8 +58,13 @@ class CollecteSerializer(serializers.ModelSerializer):
     def get_nomDechet(self, obj):
         demande = obj.idDemande
 
-        if demande and demande.idTypeDechet:
-            return demande.idTypeDechet.nom
+        if demande:
+            # Une demande multi-paniers peut concerner plusieurs catégories.
+            categories = sorted({
+                detail.idPanier.idTypeDechet.nom
+                for detail in demande.details.all()
+            })
+            return ', '.join(categories) if categories else None
 
         return None
 
@@ -67,7 +74,13 @@ class CollecteSerializer(serializers.ModelSerializer):
         if obj.quantiteRecuperee is not None:
             return obj.quantiteRecuperee
 
-        return obj.idDemande.quantite if obj.idDemande else None
+        if not obj.idDemande:
+            return None
+        # En l'absence de quantité réellement pesée, expose le total demandé.
+        return sum(
+            (detail.poidsKg for detail in obj.idDemande.details.all()),
+            start=Decimal('0'),
+        )
 
     # Récupère le prénom du citoyen qui a fait la demande.
     def get_prenomCitoyen(self, obj):
