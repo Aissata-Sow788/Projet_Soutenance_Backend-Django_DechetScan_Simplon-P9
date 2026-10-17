@@ -3,8 +3,10 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from drf_spectacular.utils import extend_schema
-from .models import Notification
-from .serializers import NotificationSerializer
+from django.conf import settings
+from .models import Notification, PushSubscription
+from .serializers import NotificationSerializer, PushSubscriptionSerializer
+from .services import enregistrer_abonnement_push
 
 class NotificationListView(APIView):
     # Seuls les utilisateurs connectés peuvent consulter leurs notifications.
@@ -78,3 +80,45 @@ class NotificationReadView(APIView):
             NotificationSerializer(notification).data,
             status=status.HTTP_200_OK
         )
+
+
+class PushConfigView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        public_key = settings.WEBPUSH_VAPID_PUBLIC_KEY
+        return Response({
+            'enabled': bool(
+                public_key and settings.WEBPUSH_VAPID_PRIVATE_KEY
+            ),
+            'publicKey': public_key or None,
+        })
+
+
+class PushSubscriptionView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = PushSubscriptionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        abonnement = enregistrer_abonnement_push(
+            request.user,
+            serializer.validated_data,
+        )
+        return Response(
+            {'id': abonnement.pk},
+            status=status.HTTP_201_CREATED,
+        )
+
+    def delete(self, request):
+        endpoint = request.data.get('endpoint')
+        if not endpoint:
+            return Response(
+                {'detail': 'Le endpoint de l’abonnement est obligatoire.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        PushSubscription.objects.filter(
+            idUtilisateur=request.user,
+            endpoint=endpoint,
+        ).delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)

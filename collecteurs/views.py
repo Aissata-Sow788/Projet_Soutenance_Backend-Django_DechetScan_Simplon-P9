@@ -16,6 +16,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from collecte.models import PointCollecte
+from notifications.services import notifier_candidat_collecteur
 from users.permissions import IsAdmin
 from .models import Collecteur, AbonnementCollecteur
 from .serializers import (
@@ -633,7 +634,8 @@ class CollecteurViewSet(viewsets.ModelViewSet):
             raise ValidationError(
                 {'detail': 'Un profil collecteur existe déjà pour votre compte.'}
             )
-        serializer.save(idUtilisateur=self.request.user)
+        collecteur = serializer.save(idUtilisateur=self.request.user)
+        notifier_candidat_collecteur(collecteur, 'en_attente')
 
     @action(detail=False, methods=['get'], url_path='disponibles')
     def disponibles(self, request):
@@ -685,6 +687,7 @@ class CollecteurViewSet(viewsets.ModelViewSet):
         Corps attendu : { "statutValidation": "valide" } ou { "statutValidation": "rejete" }
         """
         collecteur = self.get_object()
+        ancien_statut = collecteur.statutValidation
 
         serializer = CollecteurValidationSerializer(
             collecteur,
@@ -693,7 +696,12 @@ class CollecteurViewSet(viewsets.ModelViewSet):
         )
 
         if serializer.is_valid():
-            serializer.save()
+            collecteur = serializer.save()
+            if collecteur.statutValidation != ancien_statut:
+                notifier_candidat_collecteur(
+                    collecteur,
+                    collecteur.statutValidation,
+                )
             return Response(
                 CollecteurSerializer(collecteur).data,
                 status=status.HTTP_200_OK
