@@ -1,22 +1,8 @@
 # =============================================================
 # DOCKER-COMPOSE.YML — Orchestration de DechetScan
 # =============================================================
-# Docker Compose est un outil qui permet de définir et lancer
-# plusieurs conteneurs Docker en même temps, à partir d'un
 
-# "name" force le préfixe du projet Docker.
-# Sans cette ligne, Docker utilise le nom du dossier contenant
-# ce fichier comme préfixe. En le fixant à "dechetscan", les
-# volumes (dechetscan_mysql_data, dechetscan_backend_media)
-# restent identiques peu importe où se trouve ce fichier.
 name: dechetscan
-# seul fichier de configuration.
-#
-# Sans Docker Compose, il faudrait lancer chaque conteneur
-# manuellement avec une longue commande "docker run ...".
-# Avec Docker Compose, une seule commande lance tout :
-#   → docker compose up --build
-#
 # Ce fichier orchestre 4 services :
 #   1. mysql      → Base de données MySQL 8
 #   2. backend    → API Django DRF (port 8000)
@@ -27,7 +13,6 @@ name: dechetscan
 #   mysql → backend → ia-service → frontend
 # =============================================================
 
-
 # -------------------------------------------------------------
 # "services" : liste de tous les conteneurs à créer
 # Chaque clé sous "services" est le nom du conteneur.
@@ -36,36 +21,21 @@ name: dechetscan
 # -------------------------------------------------------------
 services:
 
-
   # ===========================================================
   # SERVICE 1 : MySQL — Base de données
   # ===========================================================
   mysql:
 
-    # "image" : utilise une image Docker existante sur Docker Hub.
-    # On ne construit pas notre propre image ici, MySQL existe déjà.
-    # "mysql:8.0" = version 8.0 stable de MySQL.
     image: mysql:8.0
 
-    # "container_name" : nom du conteneur créé.
-    # Sans ça, Docker génère un nom aléatoire.
     container_name: dechetscan-mysql
 
-    # "restart: unless-stopped" : redémarre le conteneur
-    # automatiquement s'il plante, sauf si on l'a arrêté manuellement.
     restart: unless-stopped
 
-    # "environment" : variables d'environnement injectées
-    # dans le conteneur. La syntaxe ${VAR} lit la valeur
-    # depuis le fichier .env du même dossier.
     environment:
-      # Nom de la base de données à créer au premier démarrage
       MYSQL_DATABASE: ${MYSQL_DATABASE}
-      # Utilisateur applicatif (moins de droits que root)
       MYSQL_USER: ${MYSQL_USER}
-      # Mot de passe de l'utilisateur applicatif
       MYSQL_PASSWORD: ${MYSQL_PASSWORD}
-      # Mot de passe root (super-admin MySQL)
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
 
     # "ports" : mappe un port de la machine hôte vers le conteneur.
@@ -86,8 +56,6 @@ services:
     volumes:
       - mysql_data:/var/lib/mysql
 
-    # "networks" : réseau Docker interne partagé entre les services.
-    # Les conteneurs sur le même réseau peuvent se parler par nom.
     networks:
       - dechetscan-network
 
@@ -95,26 +63,17 @@ services:
     # accepter des connexions (pas juste démarré).
     # Les autres services attendent ce healthcheck via "depends_on".
     healthcheck:
-      # Commande exécutée pour tester la santé du service
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "--password=${MYSQL_ROOT_PASSWORD}"]
-      # Délai avant le premier test
       start_period: 30s
-      # Intervalle entre chaque test
       interval: 10s
-      # Délai max pour qu'un test réponde
       timeout: 5s
-      # Nombre d'échecs avant de déclarer "unhealthy"
       retries: 5
-
 
   # ===========================================================
   # SERVICE 2 : Backend Django DRF
   # ===========================================================
   backend:
 
-    # "build" : construit l'image depuis un Dockerfile.
-    # "context" = dossier source copié dans le conteneur.
-    # "dockerfile" = nom du Dockerfile à utiliser.
     build:
       context: .
       dockerfile: Dockerfile
@@ -124,11 +83,8 @@ services:
     restart: unless-stopped
 
     environment:
-      # Clé secrète Django
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
-      # Mode debug
       DJANGO_DEBUG: ${DJANGO_DEBUG}
-      # Hôtes autorisés
       DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS}
 
       # Connexion MySQL
@@ -148,7 +104,6 @@ services:
       # Sans ça, Django essaie de joindre http://127.0.0.1:4040 → timeout 20s → 504
       NGROK_AGENT_API_URL: ""
 
-      # Variables PayDunya
       N8N_SECRET: ${N8N_SECRET}
       PAYDUNYA_MASTER_KEY: ${PAYDUNYA_MASTER_KEY}
       PAYDUNYA_PRIVATE_KEY: ${PAYDUNYA_PRIVATE_KEY}
@@ -174,23 +129,15 @@ services:
     ports:
       - "8000:8000"
 
-    # "volumes" : monte le dossier media/ en dehors du conteneur.
-    # Les images uploadées par les utilisateurs sont ainsi
-    # conservées même si le conteneur est recréé.
     volumes:
       - backend_media:/app/media
 
-    # "depends_on" : démarre ce service seulement quand MySQL
-    # est "healthy" (healthcheck passé), pas juste démarré.
-    # Sans ça, Django démarrerait avant que MySQL soit prêt
-    # et échouerait à se connecter.
     depends_on:
       mysql:
         condition: service_healthy
 
     networks:
       - dechetscan-network
-
 
   # ===========================================================
   # SERVICE 3 : Microservice IA — FastAPI + Google Gemini
@@ -206,7 +153,6 @@ services:
     restart: unless-stopped
 
     environment:
-      # Clé API OpenRouter pour l'analyse d'images
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
 
     ports:
@@ -218,7 +164,6 @@ services:
 
     networks:
       - dechetscan-network
-
 
   # ===========================================================
   # SERVICE 4 : Frontend Angular — Nginx
@@ -247,7 +192,6 @@ services:
     networks:
       - dechetscan-network
 
-
 # =============================================================
 # VOLUMES — Stockage persistant
 # =============================================================
@@ -262,7 +206,6 @@ volumes:
   mysql_data:
   backend_media:
 
-
 # =============================================================
 # NETWORKS — Réseau interne Docker
 # =============================================================
@@ -274,6 +217,4 @@ volumes:
 # =============================================================
 networks:
   dechetscan-network:
-    # "driver: bridge" = mode réseau standard Docker
-    # Crée un réseau virtuel isolé sur la machine hôte.
     driver: bridge
