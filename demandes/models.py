@@ -1,13 +1,11 @@
 from django.db import models
 from django.conf import settings
-from dechets.models import TypeDechet
 
 
 class DemandeCollecte(models.Model):
     """
     Représente une demande de collecte de déchets soumise par un citoyen.
-    Le citoyen précise le type de déchet, la quantité estimée,
-    le prix qu'il propose, ainsi que sa localisation (adresse + GPS).
+    Les catégories et quantités sont conservées dans DetailDemandeCollecte.
     La demande passe par différents statuts jusqu'à sa résolution.
     """
 
@@ -21,6 +19,8 @@ class DemandeCollecte(models.Model):
     STATUT_CHOICES = [
         ('en_attente', 'En attente'),
         ('acceptee', 'Acceptée'),
+        ('refusee', 'Refusée'),
+        ('planifiee', 'Planifiée'),
         ('en_cours', 'En cours'),
         ('terminee', 'Terminée'),
         ('annulee', 'Annulée'),
@@ -36,17 +36,6 @@ class DemandeCollecte(models.Model):
         null=True,
         related_name='demandes'
     )
-
-    # Type de déchet que le citoyen souhaite faire collecter.
-    idTypeDechet = models.ForeignKey(
-        TypeDechet,
-        on_delete=models.SET_NULL,
-        null=True,
-        related_name='demandes'
-    )
-
-    # Quantité estimée de déchets en kilogrammes.
-    quantite = models.FloatField()
 
     # Type de demande : ramassage à domicile ou dépôt en point de collecte.
     typeDemande = models.CharField(
@@ -81,6 +70,8 @@ class DemandeCollecte(models.Model):
         choices=STATUT_CHOICES,
         default='en_attente'
     )
+    # Empêche de restituer deux fois un stock rendu lors d'une annulation.
+    stockRestitue = models.BooleanField(default=False)
 
     # Collecteur qui a accepté et pris en charge cette demande.
     # NULL tant qu'aucun collecteur n'a accepté (statut en_attente).
@@ -103,3 +94,38 @@ class DemandeCollecte(models.Model):
 
     def __str__(self):
         return f"Demande #{self.idDemande} - {self.idUtilisateur} ({self.statut})"
+
+
+class DetailDemandeCollecte(models.Model):
+    """Objets sélectionnés et poids pesé pour une catégorie de demande."""
+
+    idDetail = models.AutoField(primary_key=True)
+    idDemande = models.ForeignKey(
+        DemandeCollecte,
+        on_delete=models.CASCADE,
+        related_name='details',
+    )
+    idPanier = models.ForeignKey(
+        'dechets.PanierDechet',
+        on_delete=models.PROTECT,
+        related_name='detailsDemandes',
+    )
+    poidsKg = models.DecimalField(max_digits=12, decimal_places=3)
+    # NULL distingue les anciennes demandes dont le nombre d'objets est inconnu.
+    nombreObjets = models.PositiveIntegerField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['idDemande', 'idPanier'],
+                name='unique_panier_par_demande',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(poidsKg__gt=0),
+                name='detail_demande_poids_positif',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(nombreObjets__isnull=True) | models.Q(nombreObjets__gt=0),
+                name='detail_demande_objets_positif',
+            ),
+        ]
