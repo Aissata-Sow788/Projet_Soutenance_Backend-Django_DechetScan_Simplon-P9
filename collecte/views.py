@@ -7,6 +7,7 @@ from django.db.models import Q
 
 from users.permissions import IsAdmin
 from collecteurs.models import Collecteur
+from notifications.services import notifier_citoyen_statut_demande
 from .models import PointCollecte, Collecte
 from .serializers import (
     PointCollecteSerializer,
@@ -89,7 +90,9 @@ class CollecteViewSet(viewsets.ModelViewSet):
             'idCollecteur',
             'idPoint',
             'idDemande__idUtilisateur',
-            'idDemande__idTypeDechet',
+        ).prefetch_related(
+            # Charge toutes les catégories de la demande sans requête par ligne.
+            'idDemande__details__idPanier__idTypeDechet'
         ).order_by('-datePlanifiee')
 
         # L'admin voit toutes les collectes.
@@ -144,7 +147,12 @@ class CollecteViewSet(viewsets.ModelViewSet):
                 )}
             )
 
-        serializer.save(idCollecteur=collecteur)
+        collecte = serializer.save(idCollecteur=collecteur)
+        if collecte.idDemande and collecte.statut == 'planifiee':
+            notifier_citoyen_statut_demande(
+                collecte.idDemande,
+                'planifiee',
+            )
 
     @action(detail=True, methods=['patch'], url_path='statut', permission_classes=[IsAuthenticated])
     def changer_statut(self, request, pk=None):
@@ -164,7 +172,17 @@ class CollecteViewSet(viewsets.ModelViewSet):
         )
 
         if serializer.is_valid():
-            serializer.save()
+            ancien_statut = collecte.statut
+            collecte = serializer.save()
+            if (
+                collecte.idDemande
+                and ancien_statut != collecte.statut
+                and collecte.statut == 'planifiee'
+            ):
+                notifier_citoyen_statut_demande(
+                    collecte.idDemande,
+                    'planifiee',
+                )
             # Retourne la collecte complète après mise à jour.
             return Response(
                 CollecteSerializer(collecte).data,
