@@ -12,10 +12,6 @@ from .views import (
 router = DefaultRouter()
 
 # Endpoints CRUD ventes.
-# GET/POST   /api/ventes/
-# GET        /api/ventes/{id}/
-# PATCH      /api/ventes/{id}/statut/
-# DELETE     /api/ventes/{id}/
 router.register(r'ventes', VenteDechetViewSet, basename='vente')
 
 urlpatterns = [
