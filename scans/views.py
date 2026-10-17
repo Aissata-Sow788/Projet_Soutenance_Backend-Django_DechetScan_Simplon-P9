@@ -76,7 +76,7 @@ def analyser_photo_avec_ia(scan):
 
             # Laisse suffisamment de temps à Gemini pour effectuer
             # l'analyse et ses éventuelles tentatives supplémentaires.
-            timeout=180,
+            timeout=60,
         )
 
     # Si FastAPI retourne une erreur HTTP, elle sera signalée ici.

@@ -66,16 +66,7 @@ class PointCollecteViewSet(viewsets.ModelViewSet):
 
 
 class CollecteViewSet(viewsets.ModelViewSet):
-    """
-    Endpoints pour la gestion des collectes réalisées par les collecteurs.
-
-    - GET    /api/collectes/                 → admin: toutes les collectes
-                                               collecteur: ses propres collectes
-    - GET    /api/collectes/{id}/            → détail d'une collecte
-    - POST   /api/collectes/                 → créer une collecte (collecteur connecté)
-    - PATCH  /api/collectes/{id}/statut/     → mettre à jour le statut (collecteur/admin)
-    - DELETE /api/collectes/{id}/            → supprimer (admin)
-    """
+    
 
     def get_queryset(self):
         """
@@ -158,9 +149,7 @@ class CollecteViewSet(viewsets.ModelViewSet):
     def changer_statut(self, request, pk=None):
         """
         Action personnalisée pour mettre à jour le statut d'une collecte.
-        URL : PATCH /api/collectes/{id}/statut/
-        Corps attendu : { "statut": "terminee", "dateRealisation": "...", "quantiteRecuperee": 12.5 }
-        Valeurs possibles : planifiee, en_cours, terminee, annulee
+
         """
         collecte = self.get_object()
 

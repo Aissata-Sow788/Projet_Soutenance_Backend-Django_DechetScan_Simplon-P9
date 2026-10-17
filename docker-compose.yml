@@ -206,8 +206,8 @@ services:
     restart: unless-stopped
 
     environment:
-      # Clé API Google Gemini pour l'analyse d'images
-      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      # Clé API OpenRouter pour l'analyse d'images
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
 
     ports:
       - "8001:8001"

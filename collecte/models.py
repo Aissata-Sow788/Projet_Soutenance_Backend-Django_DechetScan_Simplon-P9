@@ -35,11 +35,6 @@ class Collecte(models.Model):
     Représente une opération de collecte de déchets réalisée par un collecteur.
     Elle peut être planifiée à l'avance ou réalisée directement.
 
-    Relations depuis le diagramme :
-    - Collecteur "realise" une Collecte (idCollecteur FK, obligatoire)
-    - Collecte "concerne" un PointCollecte (idPoint FK, optionnel 0..1)
-    - Collecte "est basé sur" une DemandeCollecte (idDemande FK, optionnel 0..1)
-    - PointCollecte "accepte" des Collectes (déjà couvert par idPoint FK ci-dessus)
     """
 
     # Choix possibles pour le statut d'une collecte.
@@ -56,40 +51,24 @@ class Collecte(models.Model):
     # Collecteur professionnel qui réalise cette collecte.
     # SET_NULL pour conserver l'historique si le collecteur est supprimé.
     idCollecteur = models.ForeignKey(
-        'collecteurs.Collecteur',
-        on_delete=models.SET_NULL,
-        null=True,
-        related_name='collectes'
+        'collecteurs.Collecteur', on_delete=models.SET_NULL, null=True,related_name='collectes'
     )
 
     # Point de collecte concerné par cette opération (optionnel).
     # NULL si la collecte se fait directement chez le citoyen (ramassage à domicile).
-    idPoint = models.ForeignKey(
-        PointCollecte,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name='collectes'
+    idPoint = models.ForeignKey(PointCollecte, on_delete=models.SET_NULL, null=True, blank=True, related_name='collectes'
     )
 
     # Demande de collecte à l'origine de cette opération (optionnel).
     # NULL si la collecte n'est pas liée à une demande spécifique.
-    idDemande = models.ForeignKey(
-        'demandes.DemandeCollecte',
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name='collectes'
+    idDemande = models.ForeignKey('demandes.DemandeCollecte', on_delete=models.SET_NULL, null=True, blank=True, related_name='collectes'
     )
 
     # Date et heure prévues pour la collecte.
     datePlanifiee = models.DateTimeField()
 
     # Statut actuel de la collecte.
-    statut = models.CharField(
-        max_length=20,
-        choices=STATUT_CHOICES,
-        default='planifiee'
+    statut = models.CharField(max_length=20, choices=STATUT_CHOICES, default='planifiee'
     )
 
     # Date et heure réelles de réalisation de la collecte.

@@ -82,4 +82,7 @@ exec gunicorn config.wsgi:application \
     --workers 5 \
     --timeout 300 \
     --graceful-timeout 30 \
-    --keep-alive 5
+    --keep-alive 5 \
+    --access-logfile - \
+    --error-logfile - \
+    --capture-output

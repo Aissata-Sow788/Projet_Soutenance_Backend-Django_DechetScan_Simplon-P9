@@ -34,11 +34,6 @@ class VenteDechetViewSet(viewsets.ModelViewSet):
     """
     Endpoints CRUD pour la gestion des ventes de déchets.
 
-    - GET    /api/ventes/              → admin: toutes | collecteur: ses achats | citoyen: ses ventes
-    - GET    /api/ventes/{id}/         → détail d'une vente
-    - POST   /api/ventes/              → créer une vente (citoyen connecté)
-    - PATCH  /api/ventes/{id}/statut/  → mettre à jour le statut (collecteur)
-    - DELETE /api/ventes/{id}/         → supprimer une vente (collecteur)
     """
 
     def get_queryset(self):
@@ -267,7 +262,7 @@ class VentePaiementInitierView(APIView):
             )
 
         # ── Vérifie la configuration PayDunya et le callback public ──
-        configuration_manquante = [
+        configuration_paydunya = [
             nom for nom, valeur in (
                 ('PAYDUNYA_MASTER_KEY', settings.PAYDUNYA_MASTER_KEY),
                 ('PAYDUNYA_PRIVATE_KEY', settings.PAYDUNYA_PRIVATE_KEY),
@@ -276,9 +271,9 @@ class VentePaiementInitierView(APIView):
         ]
         callback_url = obtenir_url_callback_paydunya()
 
-        if configuration_manquante or not callback_url:
+        if configuration_paydunya or not callback_url:
             details = []
-            if configuration_manquante:
+            if configuration_paydunya:
                 details.append(
                     'Les clés PayDunya sont absentes de la configuration backend.'
                 )
@@ -290,7 +285,7 @@ class VentePaiementInitierView(APIView):
             return Response(
                 {
                     'detail': ' '.join(details),
-                    'configurationManquante': configuration_manquante,
+                    'configurationPaydunya': configuration_paydunya,
                     'callbackPublicDisponible': callback_url is not None,
                 },
                 status=status.HTTP_503_SERVICE_UNAVAILABLE
