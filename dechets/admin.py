@@ -1,3 +1,5 @@
 from django.contrib import admin
+from .models import PanierDechet
 
-# Register your models here.
+# Rend le stock consultable depuis l'administration Django.
+admin.site.register(PanierDechet)
