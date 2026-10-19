@@ -37,7 +37,7 @@ PAYDUNYA_API_BASE_URLS = {
 ABONNEMENT_PLANS = {
     'essentiel': {
         'label': 'Essentiel',
-        'montant': 5000,
+        'montant': 10000,
         'description': 'Pour les collecteurs indépendants.',
         'fonctionnalites': [
             'Recevoir des demandes',
@@ -48,7 +48,7 @@ ABONNEMENT_PLANS = {
     },
     'professionnel': {
         'label': 'Professionnel',
-        'montant': 10000,
+        'montant': 20000,
         'description': "L'offre la plus équilibrée.",
         'fonctionnalites': [
             'Tout le pack Essentiel',
@@ -59,7 +59,7 @@ ABONNEMENT_PLANS = {
     },
     'entreprise': {
         'label': 'Entreprise',
-        'montant': 20000,
+        'montant': 30000,
         'description': 'Solutions pour grandes flottes.',
         'fonctionnalites': [
             'Multi-comptes collecteurs',
@@ -288,31 +288,57 @@ class ProfilCollecteurView(APIView):
         return Response(self.obtenir_profil(request, collecteur))
 
 
+
 def confirmer_facture(abonnement):
+    """
+    Vérifie le paiement auprès de PayDunya.
+
+    La période d'abonnement commence uniquement lorsque le paiement
+    est confirmé. Une facture en attente ne doit pas activer l'abonnement.
+    """
+
+    # Sans token PayDunya, aucune confirmation n'est possible.
     if not abonnement.tokenPayDunya:
         return False
 
+    # Demande à PayDunya l'état réel de la facture.
     resultat = appeler_paydunya(
         f'checkout-invoice/confirm/{abonnement.tokenPayDunya}'
     )
+
     facture_confirmee = resultat.get('data', resultat)
-    if (
-        facture_confirmee.get('response_code') == '00'
+
+    # Vérifie le code et le statut renvoyés par PayDunya.
+    paiement_confirme = (
+        isinstance(facture_confirmee, dict)
+        and facture_confirmee.get('response_code') == '00'
         and str(facture_confirmee.get('status', '')).lower() == 'completed'
-    ):
-        if abonnement.statutPaiement == 'paye':
-            return True
-        aujourd_hui = timezone.localdate()
-        abonnement.statutPaiement = 'paye'
-        abonnement.dateDebut = aujourd_hui
-        abonnement.dateFin = aujourd_hui + timedelta(days=30)
-        abonnement.save(update_fields=[
-            'statutPaiement',
-            'dateDebut',
-            'dateFin',
-        ])
+    )
+
+    # Si le paiement n'est pas confirmé, on ne modifie pas les dates.
+    if not paiement_confirme:
+        return False
+
+    # Ne redémarre pas la période si le paiement est déjà enregistré.
+    if abonnement.statutPaiement == 'paye':
         return True
-    return False
+
+    # La période de 30 jours commence à la confirmation du paiement.
+    aujourd_hui = timezone.localdate()
+
+    abonnement.statutPaiement = 'paye'
+    abonnement.dateDebut = aujourd_hui
+    abonnement.dateFin = aujourd_hui + timedelta(days=30)
+
+    # Enregistre uniquement les champs qui ont changé.
+    abonnement.save(update_fields=[
+        'statutPaiement',
+        'dateDebut',
+        'dateFin',
+    ])
+
+    return True
+
 
 
 class PayDunyaPlansView(APIView):
@@ -326,11 +352,22 @@ class PayDunyaPlansView(APIView):
         return Response(offres)
 
 
+
 class AbonnementStatusView(APIView):
+    """
+    Retourne le statut du collecteur et les informations
+    de son abonnement actif pour l'interface Angular.
+    """
+
+    # Seuls les utilisateurs connectés peuvent consulter leur abonnement.
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        # Récupère le profil collecteur associé à l'utilisateur connecté.
         collecteur = obtenir_collecteur(request)
+
+        # Si l'utilisateur n'a pas encore de profil collecteur,
+        # on renvoie une réponse valide sans abonnement.
         if not collecteur:
             return Response(
                 {
@@ -342,18 +379,46 @@ class AbonnementStatusView(APIView):
                 status=status.HTTP_200_OK,
             )
 
+        # Recherche un abonnement payé et encore valide.
         abonnement = abonnement_actif(collecteur)
-        return Response({
-            'hasProfile': True,
-            'statutValidation': collecteur.statutValidation,
-            'isActive': abonnement is not None,
-            'abonnement': {
+
+        # Prépare les informations de l'abonnement si celui-ci existe.
+        donnees_abonnement = None
+
+        if abonnement:
+            donnees_abonnement = {
                 'idAbonnement': abonnement.idAbonnement,
                 'plan': abonnement.plan,
                 'montant': abonnement.montant,
-                'dateFin': abonnement.dateFin,
-            } if abonnement else None,
-        })
+
+                # Renvoie les dates au format ISO YYYY-MM-DD.
+                # Le format est facilement exploitable par JavaScript.
+                'datedebut': (
+                    abonnement.datedebut.isoformat()
+                    if abonnement.datedebut
+                    else None
+                ),
+                'dateFin': (
+                    abonnement.dateFin.isoformat()
+                    if abonnement.dateFin
+                    else None
+                ),
+
+                # Permet à Angular de connaître le statut du paiement.
+                'statutPaiement': abonnement.statutPaiement,
+            }
+
+        # Renvoie le statut du profil et les données de l'abonnement.
+        return Response(
+            {
+                'hasProfile': True,
+                'statutValidation': collecteur.statutValidation,
+                'isActive': abonnement is not None,
+                'abonnement': donnees_abonnement,
+            },
+            status=status.HTTP_200_OK,
+        )
+
 
 
 class PayDunyaInvoiceView(APIView):
@@ -715,28 +780,62 @@ class CollecteurViewSet(viewsets.ModelViewSet):
 
 class AbonnementCollecteurViewSet(viewsets.ModelViewSet):
     """
-    Endpoints pour la gestion des abonnements des collecteurs.
+    Gestion des abonnements DechetScan.
 
-    - GET  /api/abonnements/         → liste tous les abonnements (admin)
-    - GET  /api/abonnements/{id}/    → détail d'un abonnement (admin)
-    - POST /api/abonnements/         → création manuelle réservée aux admins
-    - POST /api/abonnements/initier-paiement/ → crée une facture PayDunya sécurisée
+    - GET /api/abonnements/ : abonnements personnels du collecteur
+      ou liste complète pour un administrateur.
+    - GET /api/abonnements/{id}/ : détail autorisé selon le rôle.
+    - POST /api/abonnements/ : création manuelle réservée aux admins.
+
+    Les paiements restent gérés par les vues PayDunya dédiées.
     """
 
-    queryset = AbonnementCollecteur.objects.select_related('idCollecteur').all()
+    # Charge le collecteur associé pour limiter les requêtes supplémentaires.
+    queryset = AbonnementCollecteur.objects.select_related(
+        'idCollecteur',
+        'idCollecteur__idUtilisateur',
+    ).all()
 
     def get_serializer_class(self):
+        # Sérialiseur de lecture pour consulter les abonnements.
         if self.action in ['list', 'retrieve']:
             return AbonnementCollecteurSerializer
+
+        # Sérialiseur d'écriture pour les autres actions.
         return AbonnementCollecteurCreationSerializer
 
     def get_permissions(self):
+        # Les collecteurs connectés peuvent consulter leurs abonnements.
+        if self.action in ['list', 'retrieve']:
+            return [IsAuthenticated()]
+
+        # La création manuelle et les autres actions restent réservées
+        # aux administrateurs.
         return [IsAdmin()]
+
+    def get_queryset(self):
+        """
+        Un administrateur peut consulter tous les abonnements.
+        Un collecteur ne voit que ses propres abonnements.
+        Un utilisateur sans profil collecteur reçoit une liste vide.
+        """
+
+        queryset = super().get_queryset()
+
+        # L'administrateur conserve l'accès complet.
+        if IsAdmin().has_permission(self.request, self):
+            return queryset
+
+        # Pour les autres utilisateurs, on limite les résultats
+        # au profil collecteur associé au compte connecté.
+        return queryset.filter(
+            idCollecteur__idUtilisateur=self.request.user
+        )
 
     def perform_create(self, serializer):
         """
-        Associe automatiquement le profil collecteur
-        de l'utilisateur connecté à l'abonnement créé.
+        La création manuelle est réservée aux administrateurs.
+        Le collecteur est donc fourni explicitement par l'admin
+        via les données validées du sérialiseur.
         """
-        collecteur = Collecteur.objects.get(idUtilisateur=self.request.user)
-        serializer.save(idCollecteur=collecteur)
+        serializer.save()

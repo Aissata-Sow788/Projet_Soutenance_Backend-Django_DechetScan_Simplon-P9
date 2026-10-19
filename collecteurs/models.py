@@ -92,7 +92,7 @@ class AbonnementCollecteur(models.Model):
     )
 
     # Date de début de validité de l'abonnement.
-    dateDebut = models.DateField()
+    datedebut = models.DateField()
 
     # Date de fin de validité de l'abonnement.
     dateFin = models.DateField()
