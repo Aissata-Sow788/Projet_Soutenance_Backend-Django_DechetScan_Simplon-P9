@@ -44,9 +44,6 @@ class DemandeCollecte(models.Model):
         default='ramassage'
     )
 
-    # Prix proposé par le citoyen pour la collecte (en FCFA).
-    # Peut être NULL si le citoyen laisse le collecteur fixer le prix.
-    prixPropose = models.FloatField(null=True, blank=True)
 
     # Quartier où se trouve le citoyen (ex: "Médina", "Plateau", "Pikine").
     # Remplace le champ 'adresse' supprimé, plus précis pour la localisation locale.
@@ -62,7 +59,7 @@ class DemandeCollecte(models.Model):
     dateDemande = models.DateTimeField(auto_now_add=True)
 
     # Date souhaitée par le citoyen pour la collecte.
-    dateSouhaitee = models.DateTimeField(null=True, blank=True)
+    dateSouhaitee = models.DateTimeField()
 
     # Statut actuel de la demande.
     statut = models.CharField(
@@ -72,6 +69,7 @@ class DemandeCollecte(models.Model):
     )
     # Empêche de restituer deux fois un stock rendu lors d'une annulation.
     stockRestitue = models.BooleanField(default=False)
+    
 
     # Collecteur qui a accepté et pris en charge cette demande.
     # NULL tant qu'aucun collecteur n'a accepté (statut en_attente).

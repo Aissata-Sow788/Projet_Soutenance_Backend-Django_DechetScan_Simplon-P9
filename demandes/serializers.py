@@ -1,4 +1,5 @@
 from decimal import Decimal
+from django.utils import timezone
 
 from django.db import transaction
 from rest_framework import serializers
@@ -360,6 +361,13 @@ class DemandeCollecteCreationSerializer(serializers.Serializer):
     prixPropose = serializers.FloatField(required=False, allow_null=True)
     quartier = serializers.CharField(required=False, allow_blank=True)
     dateSouhaitee = serializers.DateTimeField(required=False, allow_null=True)
+
+    def validate_dateSouhaitee(self, value):
+        if value is not None and value < timezone.now():
+            raise serializers.ValidationError(
+                "La date souhaitée ne peut pas être dans le passé."
+            )
+        return value
 
     def validate(self, attrs):
         lignes = attrs.get('details')

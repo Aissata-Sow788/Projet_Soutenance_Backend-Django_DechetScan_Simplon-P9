@@ -153,7 +153,11 @@ services:
     restart: unless-stopped
 
     environment:
-      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      # Modèle vision de Groq (optionnel, valeur par défaut ci-dessous)
+      GROQ_MODEL: ${GROQ_MODEL:-qwen/qwen3.8-27b}
+      # false = on voit les vraies erreurs pendant les tests
+      IA_RESULTAT_PAR_DEFAUT: ${IA_RESULTAT_PAR_DEFAUT:-false}
 
     ports:
       - "8001:8001"

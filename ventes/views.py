@@ -3,7 +3,6 @@ import uuid
 from urllib.parse import urlparse
 
 from django.conf import settings
-from django.db import transaction
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated, AllowAny
@@ -20,7 +19,6 @@ from collecteurs.views import (
     obtenir_url_callback_paydunya,
     PayDunyaError,
 )
-from dechets.services import restituer_quantites_paniers
 
 from .models import VenteDechet
 from .serializers import (
@@ -34,6 +32,11 @@ class VenteDechetViewSet(viewsets.ModelViewSet):
     """
     Endpoints CRUD pour la gestion des ventes de déchets.
 
+    - GET    /api/ventes/              → admin: toutes | collecteur: ses achats | citoyen: ses ventes
+    - GET    /api/ventes/{id}/         → détail d'une vente
+    - POST   /api/ventes/              → créer une vente (citoyen connecté)
+    - PATCH  /api/ventes/{id}/statut/  → mettre à jour le statut (collecteur)
+    - DELETE /api/ventes/{id}/         → supprimer une vente (collecteur)
     """
 
     def get_queryset(self):
@@ -49,8 +52,7 @@ class VenteDechetViewSet(viewsets.ModelViewSet):
         base_queryset = VenteDechet.objects.select_related(
             'idUtilisateur',
             'idCollecteur__idUtilisateur',
-        ).prefetch_related(
-            'details__idPanier__idTypeDechet'
+            'idTypeDechet'
         ).order_by('-dateVente')
 
         # L'admin voit tout.
@@ -85,30 +87,12 @@ class VenteDechetViewSet(viewsets.ModelViewSet):
         # Modification et suppression réservées aux admins.
         return [IsAdmin()]
 
-    def create(self, request, *args, **kwargs):
-        """Retourne la vente créée avec ses lignes détaillées."""
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        vente = serializer.save(idUtilisateur=request.user)
-        return Response(
-            VenteDechetSerializer(vente, context=self.get_serializer_context()).data,
-            status=status.HTTP_201_CREATED,
-        )
-
-    def destroy(self, request, *args, **kwargs):
-        """Libère le stock uniquement si la vente n'a pas été payée."""
-        vente = self.get_object()
-        with transaction.atomic():
-            if (
-                not vente.stockRestitue
-                and vente.statutPaiement in {'en_attente', 'echoue'}
-            ):
-                # Marque la restitution avant suppression pour éviter les doubles retours.
-                restituer_quantites_paniers(vente.details.all())
-                vente.stockRestitue = True
-                vente.save(update_fields=['stockRestitue'])
-            vente.delete()
-        return Response(status=status.HTTP_204_NO_CONTENT)
+    def perform_create(self, serializer):
+        """
+        Associe automatiquement l'utilisateur connecté à la vente
+        (il est le citoyen vendeur).
+        """
+        serializer.save(idUtilisateur=self.request.user)
 
     @action(
         detail=True,
@@ -219,9 +203,7 @@ class VentePaiementInitierView(APIView):
         # ── Récupère la vente et vérifie qu'elle appartient au collecteur ──
         try:
             vente = VenteDechet.objects.select_related(
-                'idUtilisateur'
-            ).prefetch_related(
-                'details__idPanier__idTypeDechet'
+                'idUtilisateur', 'idTypeDechet'
             ).get(
                 idVente=id_vente,
                 idCollecteur=collecteur
@@ -262,7 +244,7 @@ class VentePaiementInitierView(APIView):
             )
 
         # ── Vérifie la configuration PayDunya et le callback public ──
-        configuration_paydunya = [
+        configuration_manquante = [
             nom for nom, valeur in (
                 ('PAYDUNYA_MASTER_KEY', settings.PAYDUNYA_MASTER_KEY),
                 ('PAYDUNYA_PRIVATE_KEY', settings.PAYDUNYA_PRIVATE_KEY),
@@ -271,9 +253,9 @@ class VentePaiementInitierView(APIView):
         ]
         callback_url = obtenir_url_callback_paydunya()
 
-        if configuration_paydunya or not callback_url:
+        if configuration_manquante or not callback_url:
             details = []
-            if configuration_paydunya:
+            if configuration_manquante:
                 details.append(
                     'Les clés PayDunya sont absentes de la configuration backend.'
                 )
@@ -285,7 +267,7 @@ class VentePaiementInitierView(APIView):
             return Response(
                 {
                     'detail': ' '.join(details),
-                    'configurationPaydunya': configuration_paydunya,
+                    'configurationManquante': configuration_manquante,
                     'callbackPublicDisponible': callback_url is not None,
                 },
                 status=status.HTTP_503_SERVICE_UNAVAILABLE
@@ -314,6 +296,7 @@ class VentePaiementInitierView(APIView):
         annulation = f'{base_frontend}/collecteur/paiements?paiement=annule'
 
         # ── Construit la description de l'article pour PayDunya ──
+        type_dechet = vente.idTypeDechet.nom if vente.idTypeDechet else 'Déchet'
         citoyen_nom = ''
         if vente.idUtilisateur:
             citoyen_nom = (
@@ -322,34 +305,26 @@ class VentePaiementInitierView(APIView):
             ).strip()
 
         # ── Construit la facture PayDunya ──
-        # Une ligne de facture regroupe les détails pour assurer la compatibilité PayDunya.
-        details_vente = list(vente.details.select_related(
-            'idPanier__idTypeDechet'
-        ))
-        categories = ', '.join(
-            sorted({detail.idPanier.idTypeDechet.nom for detail in details_vente})
-        )
-        description_details = '; '.join(
-            f'{detail.idPanier.idTypeDechet.nom}: '
-            f'{detail.nombreObjets if detail.nombreObjets is not None else "inconnu"} objet(s), '
-            f'{detail.poidsKg} kg à {detail.prixParKg} FCFA/kg'
-            for detail in details_vente
-        )
-
         facture = {
             'invoice': {
                 'items': {
-                    'vente_dechets': {
-                        'name': f'Achat de déchets — {categories}',
+                    'vente_dechet': {
+                        'name': (
+                            f'Achat {type_dechet} — '
+                            f'{vente.quantite} kg'
+                        ),
                         'quantity': 1,
                         'unit_price': int(vente.prixPaye),
                         'total_price': int(vente.prixPaye),
-                        'description': description_details,
+                        'description': (
+                            f'Paiement citoyen {citoyen_nom} '
+                            f'pour vente #{vente.idVente}'
+                        ),
                     },
                 },
                 'total_amount': int(vente.prixPaye),
                 'description': (
-                    f'Paiement vente déchets {categories} — '
+                    f'Paiement vente déchets {type_dechet} — '
                     f'{reference}'
                 ),
                 'customer': client,
