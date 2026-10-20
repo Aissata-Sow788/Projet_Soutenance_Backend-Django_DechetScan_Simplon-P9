@@ -59,7 +59,7 @@ class DemandeCollecte(models.Model):
     dateDemande = models.DateTimeField(auto_now_add=True)
 
     # Date souhaitée par le citoyen pour la collecte.
-    dateSouhaitee = models.DateTimeField()
+    dateSouhaitee = models.DateTimeField(null=True, blank=True)
 
     # Statut actuel de la demande.
     statut = models.CharField(
