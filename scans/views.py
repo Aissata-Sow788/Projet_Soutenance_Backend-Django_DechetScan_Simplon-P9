@@ -1,6 +1,7 @@
 import requests
 import mimetypes
 import logging
+from django.utils import timezone
 
 from django.conf import settings
 from users.permissions import IsAdmin
@@ -39,6 +40,56 @@ class IAServiceUnavailable(APIException):
     )
     default_code = 'ia_service_unavailable'
 
+
+def analyser_fichier_avec_ia(fichier):
+    """
+    Envoie directement un fichier à FastAPI sans obliger Django
+    à créer préalablement un objet ScanDechet en base de données.
+    """
+
+    # URL du microservice IA.
+    url = f"{settings.IA_SERVICE_URL}/api/ia/analyse"
+
+    # Détermine le type MIME du fichier envoyé.
+    mime_type = (
+        mimetypes.guess_type(fichier.name)[0]
+        or "image/jpeg"
+    )
+
+    try:
+        # Revenir au début du fichier avant de l'envoyer.
+        fichier.seek(0)
+
+        # Envoyer l'image au microservice FastAPI.
+        response = requests.post(
+            url,
+            files={
+                "photoUrl": (
+                    fichier.name,
+                    fichier,
+                    mime_type,
+                )
+            },
+            timeout=60,
+        )
+
+        # Signaler les erreurs du microservice.
+        if response.status_code != 200:
+            logger.error(
+                "Erreur du microservice IA : HTTP %s - %s",
+                response.status_code,
+                response.text,
+            )
+
+        response.raise_for_status()
+
+        # Retourner les détections produites par l'IA.
+        return response.json()
+
+    finally:
+        # Réinitialiser le fichier pour permettre son enregistrement
+        # ultérieur si le citoyen est connecté.
+        fichier.seek(0)
 
 def analyser_photo_avec_ia(scan):
     """
@@ -95,105 +146,163 @@ def analyser_photo_avec_ia(scan):
 
 class ScanDechetCreateView(APIView):
 
-    # Autorise les visiteurs non connectés à scanner.
+    # Les citoyens connectés et les visiteurs peuvent scanner.
     permission_classes = [AllowAny]
 
-    # Nécessaire pour recevoir une photo.
+    # Autorise la réception des photos envoyées par Angular.
     parser_classes = [MultiPartParser, FormParser]
 
-    # Cette partie sert à décrire ton endpoint dans Swagger/OpenAPI.
     @extend_schema(
         request=ScanDechetCreationSerializer,
-        responses=ScanDechetSerializer
+        responses=ScanDechetSerializer,
     )
-
     def post(self, request):
-
-        # Vérifie les données envoyées par Angular.
+        # Vérifier la photo sans enregistrer immédiatement un scan.
         serializer = ScanDechetCreationSerializer(
             data=request.data
         )
 
-        if serializer.is_valid():
-
-            # Enregistre la photo du scan.
-            scan = serializer.save()
-
-            #  Rattache le scan à l'utilisateur
-            # uniquement s'il est connecté.
-            if request.user.is_authenticated:
-                scan.idUtilisateur = request.user
-                scan.save()
-
-            # Une panne IA ne doit pas laisser un scan incomplet en base.
-            try:
-                resultat_ia = analyser_photo_avec_ia(scan)
-            except requests.RequestException as erreur:
-                logger.exception(
-                    "Le microservice IA n'a pas pu analyser le scan %s.",
-                    scan.pk,
-                )
-                scan.photoUrl.delete(save=False)
-                scan.delete()
-                raise IAServiceUnavailable() from erreur
-
-            # Crée l'analyse IA liée au scan.
-            analyse = AnalyseIA.objects.create(
-                idScan=scan
+        if not serializer.is_valid():
+            return Response(
+                serializer.errors,
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
-            # Parcourt les déchets détectés par Gemini.
-            for detection in resultat_ia.get('dechets', []):
+        # Récupérer la photo validée par le serializer.
+        fichier = serializer.validated_data["photoUrl"]
 
-                categorie = detection.get('categorie')
-                objet = detection.get('objet')
-                confiance = detection.get('confiance')
+        # -------------------------------------------------------
+        # ÉTAPE 1 : ANALYSE IA
+        # -------------------------------------------------------
+        # L'image est envoyée directement à FastAPI.
+        # Aucun ScanDechet n'est créé à cette étape.
+        try:
+            resultat_ia = analyser_fichier_avec_ia(fichier)
 
-                # Recherche la catégorie dans
-                # le référentiel officiel Django.
+        except requests.RequestException as erreur:
+            logger.exception(
+                "Le microservice IA n'a pas pu analyser la photo."
+            )
+            raise IAServiceUnavailable() from erreur
+
+        # -------------------------------------------------------
+        # ÉTAPE 2 : CITOYEN ANONYME
+        # -------------------------------------------------------
+        # Ne créer aucun enregistrement en base de données.
+        # Renvoyer directement le résultat de l'analyse à Angular.
+        if not request.user.is_authenticated:
+
+            # Préparer un résultat compatible avec la structure
+            # générale utilisée par les pages de résultats.
+            date_analyse = timezone.now()
+
+            detections_anonymes = []
+
+            for detection in resultat_ia.get("dechets", []):
+                categorie = detection.get("categorie")
+
+                # Lecture seule du référentiel Django :
+                # aucune catégorie ni détection n'est créée ici.
                 type_dechet = TypeDechet.objects.filter(
                     nom=categorie
                 ).first()
 
-                # Si la catégorie n'existe pas,
-                # on ignore cette détection.
-                if not type_dechet:
-                    continue
+                detections_anonymes.append({
+                    "idDetection": None,
+                    "objet": detection.get("objet"),
+                    "confiance": detection.get("confiance"),
+                    "idTypeDechet": (
+                        {
+                            "idTypeDechet": type_dechet.pk,
+                            "nom": type_dechet.nom,
+                            "description": type_dechet.description,
+                        }
+                        if type_dechet
+                        else None
+                    ),
+                })
 
-                # Enregistre la détection.
-                DetectionIA.objects.create(
-                    objet=objet,
-                    confiance=confiance,
-                    idAnalyse=analyse,
-                    idTypeDechet=type_dechet
-                )
-                if scan.idUtilisateur_id:
-                    # Le scan identifie une catégorie, mais ne doit pas prétendre
-                    # peser ni compter les objets du panier à la place du citoyen.
-                    PanierDechet.objects.get_or_create(
-                        idUtilisateur=scan.idUtilisateur,
-                        idTypeDechet=type_dechet,
-                        defaults={
-                            'nombreDisponible': 0,
-                            'unite': 'objet',
-                        },
-                    )
+            return Response(
+                {
+                    "idScan": None,
+                    "dateScan": date_analyse,
+                    "photoUrl": None,
+                    "idUtilisateur": None,
+                    "analyseIA": {
+                        "idAnalyse": None,
+                        "dateAnalyse": date_analyse,
+                        "detections": detections_anonymes,
+                    },
+                    "resultatIA": resultat_ia,
+                    "messageRemerciement": "Merci pour votre scan !",
+                },
+                status=status.HTTP_200_OK,
+            )
 
-            # Le message est renvoyé à Angular pour tous les scans.
-            # Le service Django crée aussi une notification persistante
-            # si le scan appartient à un utilisateur connecté.
-            message_remerciement = 'Merci pour votre scan !'
-            creer_notification_apres_scan(scan, message_remerciement)
+        # -------------------------------------------------------
+        # ÉTAPE 3 : CITOYEN CONNECTÉ
+        # -------------------------------------------------------
+        # L'analyse a réussi : enregistrer maintenant le scan
+        # en l'associant directement au citoyen authentifié.
+        scan = serializer.save(
+            idUtilisateur=request.user
+        )
 
-            # Renvoie le résultat à Angular. Les utilisateurs anonymes
-            # reçoivent le remerciement dans cette réponse, sans notification persistante.
-            reponse = ScanDechetSerializer(scan).data
-            reponse['messageRemerciement'] = message_remerciement
+        # Créer l'analyse liée au scan enregistré.
+        analyse = AnalyseIA.objects.create(
+            idScan=scan
+        )
 
-            return Response(reponse, status=status.HTTP_201_CREATED)
+        # Enregistrer les détections et initialiser les paniers
+        # des catégories reconnues, comme dans ton code initial.
+        for detection in resultat_ia.get("dechets", []):
 
-        # Retourne les erreurs si la photo est invalide.
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            categorie = detection.get("categorie")
+            objet = detection.get("objet")
+            confiance = detection.get("confiance")
+
+            type_dechet = TypeDechet.objects.filter(
+                nom=categorie
+            ).first()
+
+            # Ignorer les catégories absentes du référentiel.
+            if not type_dechet:
+                continue
+
+            DetectionIA.objects.create(
+                objet=objet,
+                confiance=confiance,
+                idAnalyse=analyse,
+                idTypeDechet=type_dechet,
+            )
+
+            # Initialiser le panier sans inventer de quantité.
+            PanierDechet.objects.get_or_create(
+                idUtilisateur=request.user,
+                idTypeDechet=type_dechet,
+                defaults={
+                    "nombreDisponible": 0,
+                    "unite": "objet",
+                },
+            )
+
+        # La notification persistante concerne uniquement
+        # le citoyen connecté.
+        message_remerciement = "Merci pour votre scan !"
+
+        creer_notification_apres_scan(
+            scan,
+            message_remerciement,
+        )
+
+        # Retourner la réponse habituelle de l'API.
+        reponse = ScanDechetSerializer(scan).data
+        reponse["messageRemerciement"] = message_remerciement
+
+        return Response(
+            reponse,
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class ScanDechetListView(APIView):

@@ -66,7 +66,16 @@ class PointCollecteViewSet(viewsets.ModelViewSet):
 
 
 class CollecteViewSet(viewsets.ModelViewSet):
-    
+    """
+    Endpoints pour la gestion des collectes réalisées par les collecteurs.
+
+    - GET    /api/collectes/                 → admin: toutes les collectes
+                                               collecteur: ses propres collectes
+    - GET    /api/collectes/{id}/            → détail d'une collecte
+    - POST   /api/collectes/                 → créer une collecte (collecteur connecté)
+    - PATCH  /api/collectes/{id}/statut/     → mettre à jour le statut (collecteur/admin)
+    - DELETE /api/collectes/{id}/            → supprimer (admin)
+    """
 
     def get_queryset(self):
         """
@@ -111,13 +120,20 @@ class CollecteViewSet(viewsets.ModelViewSet):
         # Lecture : serializer complet.
         return CollecteSerializer
 
+
     def get_permissions(self):
-        # Création et consultation accessibles aux utilisateurs connectés.
+        # Lecture et création : utilisateur authentifié.
         if self.action in ['create', 'list', 'retrieve']:
             return [IsAuthenticated()]
 
-        # Modification et suppression réservées aux admins.
+        # Changement de statut : utilisateur authentifié.
+        # L'appartenance à la collecte sera vérifiée séparément.
+        if self.action == 'changer_statut':
+            return [IsAuthenticated()]
+
+        # Les autres modifications restent réservées aux admins.
         return [IsAdmin()]
+
 
     def perform_create(self, serializer):
         """
@@ -145,40 +161,62 @@ class CollecteViewSet(viewsets.ModelViewSet):
                 'planifiee',
             )
 
-    @action(detail=True, methods=['patch'], url_path='statut', permission_classes=[IsAuthenticated])
+
+    @action(
+        detail=True,
+        methods=['patch'],
+        url_path='statut',
+        permission_classes=[IsAuthenticated],
+    )
     def changer_statut(self, request, pk=None):
         """
-        Action personnalisée pour mettre à jour le statut d'une collecte.
+        PATCH /api/collectes/{id}/statut/
 
+        Autorise :
+        - un administrateur ;
+        - le collecteur auquel la collecte appartient.
         """
         collecte = self.get_object()
+        utilisateur = request.user
 
-        # Valide et applique le nouveau statut.
+        # Vérifie que l'utilisateur est administrateur
+        # ou le collecteur attribué à cette collecte.
+        est_admin = getattr(utilisateur, 'role', None) == 'admin'
+
+        est_collecteur_attribue = (
+            collecte.idCollecteur is not None
+            and collecte.idCollecteur.idUtilisateur_id == utilisateur.pk
+        )
+
+        if not (est_admin or est_collecteur_attribue):
+            raise PermissionDenied(
+                "Vous n'êtes pas autorisé à modifier cette collecte."
+            )
+
+        ancien_statut = collecte.statut
+
         serializer = CollecteStatutSerializer(
             collecte,
             data=request.data,
-            partial=True
+            partial=True,
         )
 
-        if serializer.is_valid():
-            ancien_statut = collecte.statut
-            collecte = serializer.save()
-            if (
-                collecte.idDemande
-                and ancien_statut != collecte.statut
-                and collecte.statut == 'planifiee'
-            ):
-                notifier_citoyen_statut_demande(
-                    collecte.idDemande,
-                    'planifiee',
-                )
-            # Retourne la collecte complète après mise à jour.
-            return Response(
-                CollecteSerializer(collecte).data,
-                status=status.HTTP_200_OK
+        serializer.is_valid(raise_exception=True)
+        collecte = serializer.save()
+
+        # Notifie le citoyen si le statut de sa demande change
+        # vers « planifiee ».
+        if (
+            collecte.idDemande
+            and ancien_statut != collecte.statut
+            and collecte.statut == 'planifiee'
+        ):
+            notifier_citoyen_statut_demande(
+                collecte.idDemande,
+                'planifiee',
             )
 
         return Response(
-            serializer.errors,
-            status=status.HTTP_400_BAD_REQUEST
+            CollecteSerializer(collecte).data,
+            status=status.HTTP_200_OK,
         )

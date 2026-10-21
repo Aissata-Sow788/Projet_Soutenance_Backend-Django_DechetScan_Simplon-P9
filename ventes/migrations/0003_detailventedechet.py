@@ -24,8 +24,11 @@ def migrer_ventes_existantes(apps, schema_editor):
         panier, _ = PanierDechet.objects.using(database).get_or_create(
             idUtilisateur_id=vente.idUtilisateur_id,
             idTypeDechet_id=vente.idTypeDechet_id,
-            defaults={'quantiteDisponible': 0, 'unite': 'kg'},
-        )
+            defaults={
+                'quantiteHistoriqueKg': Decimal('0'),
+                'nombreDisponible': 0,
+                'unite': 'objet',
+}, )
         prix_unitaire = (
             Decimal(str(vente.prixPaye)) / Decimal(str(vente.quantite))
             if vente.quantite
@@ -43,7 +46,7 @@ def migrer_ventes_existantes(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('dechets', '0005_panierdechet'),
+        ('dechets', '0008_tarifs_par_collecteur'),
         ('ventes', '0002_ventedechet_tokenpaydunya'),
     ]
 
