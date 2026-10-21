@@ -46,7 +46,7 @@ class DemandeCollecte(models.Model):
 
 
     # Quartier où se trouve le citoyen (ex: "Médina", "Plateau", "Pikine").
-    # Remplace le champ 'adresse' supprimé, plus précis pour la localisation locale.
+   # plus précis pour la localisation locale.
     quartier = models.CharField(max_length=100, blank=True)
 
     # Coordonnées GPS récupérées automatiquement par le navigateur (géolocalisation).

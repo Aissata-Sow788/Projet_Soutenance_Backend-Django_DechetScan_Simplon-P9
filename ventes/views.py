@@ -48,11 +48,10 @@ class VenteDechetViewSet(viewsets.ModelViewSet):
         """
         utilisateur = self.request.user
 
-        # Précharge les relations pour éviter les requêtes N+1.
+        # Correction : suppression de 'idTypeDechet' (remplacé par les lignes de détail / paniers)
         base_queryset = VenteDechet.objects.select_related(
             'idUtilisateur',
-            'idCollecteur__idUtilisateur',
-            'idTypeDechet'
+            'idCollecteur__idUtilisateur'
         ).order_by('-dateVente')
 
         # L'admin voit tout.
@@ -66,7 +65,6 @@ class VenteDechetViewSet(viewsets.ModelViewSet):
 
         # Le citoyen voit ses propres ventes.
         return base_queryset.filter(idUtilisateur=utilisateur)
-
     def get_serializer_class(self):
         # Création : serializer simplifié sans idUtilisateur.
         if self.action == 'create':

@@ -257,7 +257,6 @@ class DemandeCollecteSerializer(serializers.ModelSerializer):
             'nombreObjets',
             'details',
             'typeDemande',
-            'prixPropose',
             'quartier',
             'latitude',
             'longitude',
@@ -358,7 +357,6 @@ class DemandeCollecteCreationSerializer(serializers.Serializer):
         choices=DemandeCollecte.TYPE_DEMANDE_CHOICES,
         required=False,
     )
-    prixPropose = serializers.FloatField(required=False, allow_null=True)
     quartier = serializers.CharField(required=False, allow_blank=True)
     dateSouhaitee = serializers.DateTimeField(required=False, allow_null=True)
 

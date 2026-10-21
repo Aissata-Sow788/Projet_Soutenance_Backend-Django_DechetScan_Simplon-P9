@@ -127,7 +127,7 @@ class AbonnementCollecteurSerializer(serializers.ModelSerializer):
         fields = [
             'idAbonnement',
             'idCollecteur',
-            'dateDebut',
+            'datedebut',
             'dateFin',
             'statutPaiement',
             'methodePaiement',
@@ -148,7 +148,7 @@ class AbonnementCollecteurCreationSerializer(serializers.ModelSerializer):
     class Meta:
         model = AbonnementCollecteur
         fields = [
-            'dateDebut',
+            'datedebut',
             'dateFin',
             'statutPaiement',
             'methodePaiement',
