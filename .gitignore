@@ -9,3 +9,8 @@ db.sqlite3
 .env
 media/
 .env.docker.bak
+# Sauvegardes locales de la base de données
+*.sql
+*.sql.gz
+*.dump
+*.backup
