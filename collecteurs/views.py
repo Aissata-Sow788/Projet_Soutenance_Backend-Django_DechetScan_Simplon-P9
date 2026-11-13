@@ -16,7 +16,10 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from collecte.models import PointCollecte
-from notifications.services import notifier_candidat_collecteur
+from notifications.services import (
+    notifier_admins_nouvelle_candidature_collecteur,
+    notifier_candidat_collecteur,
+)
 from users.permissions import IsAdmin
 from .models import Collecteur, AbonnementCollecteur
 from .serializers import (
@@ -327,13 +330,13 @@ def confirmer_facture(abonnement):
     aujourd_hui = timezone.localdate()
 
     abonnement.statutPaiement = 'paye'
-    abonnement.dateDebut = aujourd_hui
+    abonnement.datedebut = aujourd_hui
     abonnement.dateFin = aujourd_hui + timedelta(days=30)
 
     # Enregistre uniquement les champs qui ont changé.
     abonnement.save(update_fields=[
         'statutPaiement',
-        'dateDebut',
+        'datedebut',
         'dateFin',
     ])
 
@@ -489,7 +492,7 @@ class PayDunyaInvoiceView(APIView):
         aujourd_hui = timezone.localdate()
         abonnement = AbonnementCollecteur.objects.create(
             idCollecteur=collecteur,
-            dateDebut=aujourd_hui,
+            datedebut=aujourd_hui,
             dateFin=aujourd_hui,
             statutPaiement='en_attente',
             methodePaiement=OPERATEURS_PAIEMENT[operateur],
@@ -700,6 +703,8 @@ class CollecteurViewSet(viewsets.ModelViewSet):
                 {'detail': 'Un profil collecteur existe déjà pour votre compte.'}
             )
         collecteur = serializer.save(idUtilisateur=self.request.user)
+        # La candidature doit apparaître dans les notifications de l'espace admin.
+        notifier_admins_nouvelle_candidature_collecteur(collecteur)
         notifier_candidat_collecteur(collecteur, 'en_attente')
 
     @action(detail=False, methods=['get'], url_path='disponibles')

@@ -67,18 +67,11 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-    # La colonne existe déjà dans MySQL.
-    # On met à jour l'état Django sans recréer la colonne.
-    migrations.SeparateDatabaseAndState(
-        database_operations=[],
-        state_operations=[
-            migrations.AddField(
-                model_name='demandecollecte',
-                name='stockRestitue',
-                field=models.BooleanField(default=False),
-            ),
-        ],
-    ),
+        migrations.AddField(
+            model_name='demandecollecte',
+            name='stockRestitue',
+            field=models.BooleanField(default=False),
+        ),
         migrations.CreateModel(
             name='DetailDemandeCollecte',
             fields=[

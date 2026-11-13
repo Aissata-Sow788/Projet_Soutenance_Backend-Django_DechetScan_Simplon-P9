@@ -6,7 +6,7 @@ name: dechetscan
 # Ce fichier orchestre 4 services :
 #   1. mysql      → Base de données MySQL 8
 #   2. backend    → API Django DRF (port 8000)
-#   3. ia-service → Microservice FastAPI + Gemini (port 8001)
+#  #  3. ia-service → Microservice FastAPI + Groq (port 8001)
 #   4. frontend   → Angular compilé, servi par Nginx (port 4200)
 #
 # Ordre de démarrage :
@@ -140,12 +140,12 @@ services:
       - dechetscan-network
 
   # ===========================================================
-  # SERVICE 3 : Microservice IA — FastAPI + Google Gemini
+  # SERVICE 3 : Microservice IA — FastAPI + Groq
   # ===========================================================
   ia-service:
 
     build:
-      context: ../DechetScan-IA
+      context: ../../Microservice-IA/Projet_Soutenance_Microservice-FastApi_IA_DechetScan_Simplon-P9
       dockerfile: Dockerfile
 
     container_name: dechetscan-ia
@@ -175,7 +175,7 @@ services:
   frontend:
 
     build:
-      context: ../Projet_DechetScan
+      context: ../../Angular/Projet_Soutenance_Frontend-Angular_DechetScan_Simplon-P9
       dockerfile: Dockerfile
 
     container_name: dechetscan-frontend

@@ -147,6 +147,44 @@ class NotificationsMetierTests(TestCase):
         self.assertIn('a été refusée', mail.outbox[0].body)
         self.assertNotIn('plaisir', mail.outbox[0].body)
 
+    def test_notifie_l_administrateur_et_affiche_la_candidature_dans_son_espace(self):
+        """Vérifie le parcours complet entre la création et la liste admin."""
+        administrateur = get_user_model().objects.create_user(
+            email='admin@example.com',
+            password='mot-de-passe-test',
+            role='admin',
+        )
+        client = APIClient()
+        client.force_authenticate(self.citoyen)
+
+        # La demande est créée par le même endpoint utilisé par le frontend.
+        creation = client.post(
+            '/api/collecteurs/',
+            {
+                'nomEntreprise': 'Collecte Test',
+                'telephoneProfessionnel': '770000000',
+                'zoneIntervention': 'Dakar',
+            },
+            format='json',
+        )
+
+        self.assertEqual(creation.status_code, 201)
+        notification = Notification.objects.get(idUtilisateur=administrateur)
+        self.assertEqual(
+            notification.titre,
+            'Nouvelle demande pour devenir collecteur',
+        )
+        self.assertIn('Collecte Test', notification.message)
+
+        # L'API utilisée par la page admin retourne bien cette notification.
+        client.force_authenticate(administrateur)
+        liste = client.get('/api/notifications/')
+        self.assertEqual(liste.status_code, 200)
+        self.assertEqual(
+            [element['idNotification'] for element in liste.data],
+            [notification.idNotification],
+        )
+
     @override_settings(
         WEBPUSH_VAPID_PUBLIC_KEY='public-key',
         WEBPUSH_VAPID_PRIVATE_KEY='private-key',

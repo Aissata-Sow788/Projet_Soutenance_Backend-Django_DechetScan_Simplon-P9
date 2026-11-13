@@ -41,107 +41,78 @@ class IAServiceUnavailable(APIException):
     default_code = 'ia_service_unavailable'
 
 
+def _obtenir_fichier_photo(source):
+    """Retourne l'objet binaire exploitable par les requêtes IA."""
+    if hasattr(source, 'open'):
+        return source.open('rb')
+    return source
+
+
 def analyser_fichier_avec_ia(fichier):
     """
-    Envoie directement un fichier à FastAPI sans obliger Django
-    à créer préalablement un objet ScanDechet en base de données.
+    Envoie directement un fichier uploadé à FastAPI.
+    Cette version est compatible avec les tests et les fichiers
+    temporaires envoyés par DRF sans imposer un objet ScanDechet.
     """
 
-    # URL du microservice IA.
-    url = f"{settings.IA_SERVICE_URL}/api/ia/analyse"
+    return analyser_photo_avec_ia(fichier)
 
-    # Détermine le type MIME du fichier envoyé.
-    mime_type = (
-        mimetypes.guess_type(fichier.name)[0]
-        or "image/jpeg"
-    )
 
-    try:
-        # Revenir au début du fichier avant de l'envoyer.
-        fichier.seek(0)
-
-        # Envoyer l'image au microservice FastAPI.
-        response = requests.post(
-            url,
-            files={
-                "photoUrl": (
-                    fichier.name,
-                    fichier,
-                    mime_type,
-                )
-            },
-            timeout=60,
-        )
-
-        # Signaler les erreurs du microservice.
-        if response.status_code != 200:
-            logger.error(
-                "Erreur du microservice IA : HTTP %s - %s",
-                response.status_code,
-                response.text,
-            )
-
-        response.raise_for_status()
-
-        # Retourner les détections produites par l'IA.
-        return response.json()
-
-    finally:
-        # Réinitialiser le fichier pour permettre son enregistrement
-        # ultérieur si le citoyen est connecté.
-        fichier.seek(0)
-
-def analyser_photo_avec_ia(scan):
+def analyser_photo_avec_ia(scan_ou_fichier):
     """
-    Envoie la photo enregistrée par Django au microservice IA
-    pour qu'elle soit analysée par Gemini.
+    Envoie une image au microservice IA. Cette fonction accepte
+    soit un objet ScanDechet, soit un fichier uploadé.
     """
+
+    # L'image peut venir directement d'un fichier uploadé
+    # ou d'un champ de modèle Django (scan.photoUrl).
+    source = getattr(scan_ou_fichier, 'photoUrl', scan_ou_fichier)
+    if source is None:
+        raise ValueError('Aucune image à analyser n’a été fournie.')
 
     # URL du microservice FastAPI.
-    # On lit depuis settings.IA_SERVICE_URL qui vient de la variable
-    # d'environnement IA_SERVICE_URL.
-    # En local  : http://127.0.0.1:8001
-    # En Docker : http://ia-service:8001  (nom du service docker-compose)
     url = f"{settings.IA_SERVICE_URL}/api/ia/analyse"
 
-    # Détermine automatiquement le type MIME de l'image.
-    # Exemple : .jpg -> image/jpeg, .png -> image/png.
-    mime_type = mimetypes.guess_type(
-        scan.photoUrl.name
-    )[0] or "image/jpeg"
+    # Détermine le nom et le type MIME de l'image.
+    nom_fichier = getattr(source, 'name', 'scan.jpg')
+    mime_type = mimetypes.guess_type(nom_fichier)[0] or 'image/jpeg'
 
-    # Ouvre l'image enregistrée par Django en lecture binaire.
-    with scan.photoUrl.open("rb") as image:
+    try:
+        if hasattr(source, 'open'):
+            # Garder le fichier ouvert : Django doit encore le sauvegarder après l'analyse.
+            image = source.open('rb')
+        else:
+            # Un fichier uploadé DRF peut être un objet déjà prêt à l'emploi.
+            if hasattr(source, 'seek'):
+                source.seek(0)
+            image = source
 
-        # Envoie l'image à FastAPI.
-        # IMPORTANT : FastAPI attend précisément le champ "photoUrl".
         response = requests.post(
             url,
             files={
-                "photoUrl": (
-                    scan.photoUrl.name,
+                'photoUrl': (
+                    nom_fichier,
                     image,
                     mime_type,
                 )
             },
-
-            # Laisse suffisamment de temps à Gemini pour effectuer
-            # l'analyse et ses éventuelles tentatives supplémentaires.
             timeout=60,
         )
+    finally:
+        if hasattr(source, 'seek'):
+            try:
+                source.seek(0)
+            except (AttributeError, ValueError):
+                pass
 
-    # Si FastAPI retourne une erreur HTTP, elle sera signalée ici.
     if response.status_code != 200:
-        print("========================================")
-        print("ERREUR MICRO-SERVICE IA")
-        print("STATUS :", response.status_code)
-        print("REPONSE :", response.text)
-        print("========================================")
+        logger.error(
+            'Erreur du microservice IA : HTTP %s - %s',
+            response.status_code,
+            response.text,
+        )
 
-    # Déclenche l'exception si le statut HTTP est une erreur.
     response.raise_for_status()
-
-    # Retourne le résultat JSON produit par FastAPI.
     return response.json()
 
 class ScanDechetCreateView(APIView):

@@ -11,8 +11,10 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 """
 
 import os
+import sys
 from pathlib import Path
 from dotenv import load_dotenv
+from django.core.exceptions import ImproperlyConfigured
 # Importe timedelta pour définir la durée de validité des tokens.
 from datetime import timedelta
 
@@ -52,10 +54,17 @@ MEDIA_ROOT = BASE_DIR / 'media'
 # See https://docs.djangoproject.com/en/6.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-cpa1oadkn5e_bj&p-2hkpn7zi0*-j)kr1wf=#+)ebbe_81imj2'
+SECRET_KEY = os.getenv('DJANGO_SECRET_KEY')
+if not SECRET_KEY:
+    raise ImproperlyConfigured('DJANGO_SECRET_KEY is not configured.')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.getenv('DJANGO_DEBUG', 'True').strip().lower() in {
+    '1',
+    'true',
+    'yes',
+    'on',
+}
 
 # Hôtes autorisés à accéder au backend.
 # En Docker, on lit la variable DJANGO_ALLOWED_HOSTS depuis .env.
@@ -136,30 +145,34 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.1/ref/settings/#databases
 
-# DATABASES = {
-#     'default': {
-#         'ENGINE': 'django.db.backends.sqlite3',
-#         'NAME': BASE_DIR / 'db.sqlite3',
-#     }
-# }
-
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.mysql',
-        # Nom de la base lu depuis la variable d'environnement.
-        # En Docker, cette variable vient du docker-compose.yml.
-        # En local, elle vient du fichier .env.
-        'NAME': os.getenv('MYSQL_DATABASE', 'dechetscan_project'),
-        # Utilisateur MySQL applicatif
-        'USER': os.getenv('MYSQL_USER', 'dechetscan_user'),
-        # Mot de passe lu depuis l'environnement (jamais en dur)
-        'PASSWORD': os.getenv('MYSQL_PASSWORD', ''),
-        # En Docker : nom du service MySQL défini dans docker-compose.
-        # En local  : 'localhost'
-        'HOST': os.getenv('MYSQL_HOST', 'localhost'),
-        'PORT': os.getenv('MYSQL_PORT', '3306'),
+# Utilisation d'une base SQLite locale pendant les tests unitaires du dépôt,
+# pour éviter de dépendre d'un service MySQL absent au moment du démarrage.
+# En production / Docker, le backend continue à utiliser MySQL depuis .env.
+if 'test' in sys.argv or 'pytest' in sys.modules:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'test_db.sqlite3',
+        }
     }
-}
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.mysql',
+            # Nom de la base lu depuis la variable d'environnement.
+            # En Docker, cette variable vient du docker-compose.yml.
+            # En local, elle vient du fichier .env.
+            'NAME': os.getenv('MYSQL_DATABASE', 'dechetscan_project'),
+            # Utilisateur MySQL applicatif
+            'USER': os.getenv('MYSQL_USER', 'dechetscan_user'),
+            # Mot de passe lu depuis l'environnement (jamais en dur)
+            'PASSWORD': os.getenv('MYSQL_PASSWORD', ''),
+            # En Docker : nom du service MySQL défini dans docker-compose.
+            # En local  : 'localhost'
+            'HOST': os.getenv('MYSQL_HOST', 'localhost'),
+            'PORT': os.getenv('MYSQL_PORT', '3306'),
+        }
+    }
 
 
 # Password validation

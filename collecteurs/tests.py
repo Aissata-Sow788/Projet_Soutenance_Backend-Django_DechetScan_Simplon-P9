@@ -53,6 +53,55 @@ class AbonnementStatusTests(SimpleTestCase):
 
 
 class PayDunyaSubscriptionTests(SimpleTestCase):
+    @override_settings(
+        PAYDUNYA_MASTER_KEY='master',
+        PAYDUNYA_PRIVATE_KEY='private',
+        PAYDUNYA_TOKEN='token',
+        PAYDUNYA_MODE='test',
+        PAYDUNYA_FRONTEND_URL='http://localhost:4200',
+    )
+    def test_invoice_uses_the_subscription_model_start_date_field(self):
+        user = SimpleNamespace(
+            is_authenticated=True,
+            first_name='Aissata',
+            last_name='Sow',
+            email='collecteur@example.com',
+            telephone='770000000',
+        )
+        collecteur = SimpleNamespace(idUtilisateur=user)
+        abonnement = SimpleNamespace(idAbonnement=42, save=Mock())
+        request = APIRequestFactory().post(
+            '/api/abonnements/initier-paiement/',
+            {'plan': 'essentiel', 'operateur': 'paydunya'},
+            format='json',
+        )
+        force_authenticate(request, user=user)
+
+        with (
+            patch('collecteurs.views.obtenir_collecteur', return_value=collecteur),
+            patch('collecteurs.views.abonnement_actif', return_value=None),
+            patch(
+                'collecteurs.views.obtenir_url_callback_paydunya',
+                return_value='https://public.example/api/paydunya/ipn/',
+            ),
+            patch('collecteurs.views.AbonnementCollecteur.objects.create') as create,
+            patch(
+                'collecteurs.views.appeler_paydunya',
+                return_value={
+                    'response_code': '00',
+                    'token': 'invoice-token',
+                    'response_text': 'https://app.paydunya.com/checkout/invoice-token',
+                },
+            ),
+        ):
+            create.return_value = abonnement
+            response = PayDunyaInvoiceView.as_view()(request)
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data['urlPaiement'], 'https://app.paydunya.com/checkout/invoice-token')
+        self.assertIn('datedebut', create.call_args.kwargs)
+        self.assertNotIn('dateDebut', create.call_args.kwargs)
+
     def test_monthly_prices_are_exposed_by_the_api(self):
         request = APIRequestFactory().get('/api/abonnements/offres/')
         force_authenticate(request, user=SimpleNamespace(is_authenticated=True))
@@ -63,9 +112,9 @@ class PayDunyaSubscriptionTests(SimpleTestCase):
         self.assertEqual(
             {offre['code']: offre['montant'] for offre in response.data},
             {
-                'essentiel': 5000,
-                'professionnel': 10000,
-                'entreprise': 20000,
+                'essentiel': 10000,
+                'professionnel': 20000,
+                'entreprise': 30000,
             },
         )
         self.assertTrue(all(offre['dureeJours'] == 30 for offre in response.data))
@@ -126,7 +175,10 @@ class PayDunyaSubscriptionTests(SimpleTestCase):
         self.assertNotIn('secret-value', message)
         self.assertIn('[masqué]', message)
 
-    @override_settings(PAYDUNYA_CALLBACK_URL='https://public.example/callback/')
+    @override_settings(
+        PAYDUNYA_CALLBACK_URL='https://public.example/callback/',
+        NGROK_AGENT_API_URL='http://127.0.0.1:4040/api/tunnels',
+    )
     @patch('collecteurs.views.urlopen')
     def test_ngrok_callback_is_preferred_to_static_url_in_test_mode(self, urlopen):
         response = MagicMock()
@@ -145,7 +197,10 @@ class PayDunyaSubscriptionTests(SimpleTestCase):
             'https://example.ngrok-free.app/api/paydunya/ipn/',
         )
 
-    @override_settings(PAYDUNYA_CALLBACK_URL='')
+    @override_settings(
+        PAYDUNYA_CALLBACK_URL='',
+        NGROK_AGENT_API_URL='http://127.0.0.1:4040/api/tunnels',
+    )
     @patch('collecteurs.views.urlopen')
     def test_ngrok_callback_is_discovered_for_the_django_tunnel(self, urlopen):
         response = MagicMock()
@@ -265,7 +320,7 @@ class PayDunyaSubscriptionTests(SimpleTestCase):
         abonnement = SimpleNamespace(
             tokenPayDunya='paydunya-token',
             statutPaiement='en_attente',
-            dateDebut=date(2026, 9, 26),
+            datedebut=date(2026, 9, 26),
             dateFin=date(2026, 9, 26),
             save=Mock(),
         )
@@ -273,7 +328,7 @@ class PayDunyaSubscriptionTests(SimpleTestCase):
         self.assertTrue(confirmer_facture(abonnement))
 
         self.assertEqual(abonnement.statutPaiement, 'paye')
-        self.assertEqual(abonnement.dateDebut, date(2026, 9, 26))
+        self.assertEqual(abonnement.datedebut, date(2026, 9, 26))
         self.assertEqual(abonnement.dateFin, date(2026, 10, 26))
         abonnement.save.assert_called_once()
 

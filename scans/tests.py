@@ -84,6 +84,40 @@ class ScanPanierIntegrationTests(TestCase):
         self.assertEqual(panier.unite, 'objet')
         self.assertEqual(response.data['analyseIA']['detections'][0]['objet'], 'Bouteille')
 
+    @patch('scans.views.creer_notification_apres_scan')
+    @patch('scans.views.requests.post')
+    def test_scan_sauvegarde_la_photo_apres_son_envoi_au_service_ia(
+        self,
+        requete_ia,
+        notifier,
+    ):
+        """Vérifie que l'analyse ne ferme pas le fichier avant sa sauvegarde."""
+        reponse_ia = requests.Response()
+        reponse_ia.status_code = 200
+        reponse_ia._content = (
+            b'{"dechets":[{"categorie":"Plastique","objet":"Bouteille",'
+            b'"confiance":0.95}]}'
+        )
+
+        def repondre_ia(*args, **kwargs):
+            # L'IA lit le fichier sans en prendre la propriété ni le fermer.
+            fichier_envoye = kwargs['files']['photoUrl'][1]
+            self.assertFalse(fichier_envoye.closed)
+            self.assertTrue(fichier_envoye.read())
+            return reponse_ia
+
+        requete_ia.side_effect = repondre_ia
+
+        response = self.client.post(
+            '/api/scans/',
+            {'photoUrl': self.image_upload()},
+            format='multipart',
+        )
+
+        self.assertEqual(response.status_code, 201, response.data)
+        scan = ScanDechet.objects.get(pk=response.data['idScan'])
+        self.assertTrue(scan.photoUrl.storage.exists(scan.photoUrl.name))
+
     @patch(
         'scans.views.analyser_photo_avec_ia',
         side_effect=requests.HTTPError('503 Service Unavailable'),

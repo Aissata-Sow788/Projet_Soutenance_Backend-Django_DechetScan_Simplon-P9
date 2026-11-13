@@ -3,6 +3,7 @@ import hashlib
 import logging
 
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.core.mail import send_mail
 from django.db import transaction
 from scans.models import ScanDechet
@@ -229,6 +230,39 @@ def notifier_candidat_collecteur(collecteur, statut: str) -> None:
         sujet_email='Mise à jour de votre demande pour devenir collecteur',
         corps_email=corps,
     )
+
+
+def notifier_admins_nouvelle_candidature_collecteur(collecteur) -> None:
+    """Informe chaque administrateur actif de la nouvelle candidature."""
+    utilisateur = collecteur.idUtilisateur
+    nom_candidat = ' '.join(
+        partie for partie in (utilisateur.first_name, utilisateur.last_name)
+        if partie
+    ) or utilisateur.email
+    message = (
+        f'{nom_candidat} a soumis une demande pour devenir collecteur. '
+        f'Entreprise : {collecteur.nomEntreprise or "Non renseignée"}. '
+        f'Téléphone : {collecteur.telephoneProfessionnel or "Non renseigné"}. '
+        f'Zone : {collecteur.zoneIntervention or "Non renseignée"}.'
+    )
+
+    # Le rôle admin correspond au contrôle d'accès utilisé par l'espace administrateur.
+    administrateurs = get_user_model().objects.filter(
+        role='admin',
+        is_active=True,
+    )
+    for administrateur in administrateurs:
+        creer_notification(
+            administrateur,
+            'Nouvelle demande pour devenir collecteur',
+            message,
+            sujet_email='Nouvelle demande pour devenir collecteur',
+            corps_email=(
+                f'Bonjour,\n\n{message}\n\n'
+                'Connectez-vous à DechetScan pour examiner cette candidature.\n\n'
+                'L’équipe DechetScan'
+            ),
+        )
 
 
 @transaction.atomic
